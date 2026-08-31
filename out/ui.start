@@ -30,6 +30,7 @@ set -x 2>&9
 		sleep 3
 		/usr/local/bin/term-max &
 		respawn /usr/local/bin/home &
+		respawn /usr/local/bin/keysd &
 		sleep 2; /usr/local/bin/kbd >/dev/null 2>&1
 		exec sleep 2147483647
 	' </dev/null >/var/log/ui.log 2>&1 &
