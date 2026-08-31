@@ -40,8 +40,8 @@ def main():
                   bg=color, fg="white", relief="flat", bd=0, height=2,
                   anchor="w", padx=24, command=lambda c=cmd: run(c)
                   ).pack(fill="x", padx=20, pady=6)
-    tk.Button(root, text="Отмена", font=("DejaVu Sans", 15),
-              bg="#1c2a40", fg=DIM, relief="flat", bd=0, height=2,
+    tk.Button(root, text="Отмена", font=("DejaVu Sans", 16, "bold"),
+              bg="#33415c", fg="white", relief="flat", bd=0, height=3,
               command=root.destroy).pack(fill="x", padx=20, pady=(20, 8))
 
     root.after(300, lambda: root.geometry("480x740+0+0"))
