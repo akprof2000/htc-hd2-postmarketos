@@ -11,6 +11,7 @@
 import os
 import struct
 import subprocess
+import threading
 import time
 
 DEV = "/dev/input/event4"
@@ -55,7 +56,39 @@ def raise_win(title):
     sh("DISPLAY=:0 wmctrl -a '%s'" % title)
 
 
+# классы окон, где нужен ввод текста — там клавиатура показывается сама
+TYPING = ("xfce4-terminal", "netsurf", "phone-sms", "sms")
+
+
+def kbd_watcher():
+    """Автопоказ клавиатуры: есть окно ввода — показать, нет — спрятать."""
+    env = dict(os.environ, DISPLAY=":0")
+    last = None
+    while True:
+        time.sleep(1.0)
+        try:
+            cls = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowclassname"],
+                capture_output=True, text=True, env=env,
+                timeout=5).stdout.strip().lower()
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        want = any(t in cls for t in TYPING)
+        if want == last:
+            continue
+        last = want
+        on = subprocess.run(["pgrep", "svkbd"],
+                            stdout=subprocess.DEVNULL).returncode == 0
+        if want and not on:
+            subprocess.run(["/usr/local/bin/kbd"], env=env,
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        elif not want and on:
+            subprocess.run(["pkill", "svkbd"], stdout=subprocess.DEVNULL)
+
+
 def main():
+    threading.Thread(target=kbd_watcher, daemon=True).start()
     f = open(DEV, "rb")
     pressed = {}
     hung_up = [False]
