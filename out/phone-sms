@@ -100,7 +100,7 @@ class Sms:
                   bg=FIELD, fg=FG, relief="flat", bd=0, height=2,
                   command=self.refresh).pack(side="left", expand=True,
                                              fill="both", padx=4)
-        tk.Button(bar, text="Клав.", font=("DejaVu Sans", 14),
+        tk.Button(bar, text="⌨", font=("DejaVu Sans", 14),
                   bg=FIELD, fg=FG, relief="flat", bd=0, height=2,
                   command=self.toggle_kbd).pack(side="left", expand=True,
                                                 fill="both", padx=(4, 0))
@@ -174,7 +174,7 @@ class Sms:
         if len(raw) % 2 == 0 and raw[::2].count(0) + raw[::2].count(4) \
                 >= len(raw) // 4:
             try:
-                return raw.decode("utf-16-be")
+                return raw.decode("utf-16-be").replace("\r", "")
             except UnicodeDecodeError:
                 pass
         if all(32 <= b < 127 for b in raw):
