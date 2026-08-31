@@ -8,8 +8,8 @@ BG, FG, DIM = "#101828", "#e8eef5", "#7c8794"
 
 ACTIONS = [
     ("Выключить", "#a4262c", "poweroff"),
-    ("Перезагрузка → Windows Mobile\n(экспериментально)", "#8a5a2e",
-     "reboot"),
+    # программный reboot ПРОВЕРЕН 01.09: виснет (доходит до подсветки
+    # кнопок и всё) — чипсету нужен hardboot. Пункта в меню нет.
     ("Экран выключить", "#33415c",
      "sh -c 'echo 0 > /sys/class/leds/lcd-backlight/brightness'"),
     ("Перезапустить графику", "#5d5d3a", "/usr/local/bin/x-restart"),
