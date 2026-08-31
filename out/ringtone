@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Рингтон HTC HD2: мелодия в /dev/msm_pcm_out (легаси-интерфейс MSM,
+последовательность управления — как в проверенном beep.c).
+
+Мелодия — фрагмент «Gran Vals» Ф. Тарреги (1902, общественное достояние),
+он же классический «нокиевский» мотив. Синтез — затухающий синус с лёгкой
+второй гармоникой; PCM кэшируется в файл, чтобы не пересчитывать.
+"""
+import array
+import fcntl
+import math
+import os
+import struct
+import sys
+
+RATE = 44100
+CACHE = "/var/lib/phone/ringtone.raw"
+
+def _iow(nr): return (1 << 30) | (4 << 16) | (ord('a') << 8) | nr
+def _ior(nr): return (2 << 30) | (4 << 16) | (ord('a') << 8) | nr
+
+AUDIO_START         = _iow(0)
+AUDIO_STOP          = _iow(1)
+AUDIO_GET_CONFIG    = _ior(3)
+AUDIO_SET_CONFIG    = _iow(4)
+AUDIO_SET_VOLUME    = _iow(10)
+AUDIO_SWITCH_DEVICE = _iow(32)
+DEV_SPKR_MONO    = 0x1081513
+DEV_HEADSET      = 0x107ac8a
+
+# нота (полутоны от A4), длительность в долях
+E5, D5, Fs4, Gs4, Cs5, B4, D4, E4, A4, Cs4 = 7, 5, -3, -1, 4, 2, -7, -5, 0, -9
+MELODY = [(E5, 1), (D5, 1), (Fs4, 2), (Gs4, 2),
+          (Cs5, 1), (B4, 1), (D4, 2), (E4, 2),
+          (B4, 1), (A4, 1), (Cs4, 2), (E4, 2), (A4, 6)]
+UNIT = 0.125  # восьмушка, сек
+
+
+def synth():
+    pcm = array.array("h")
+    for semi, beats in MELODY:
+        f = 440.0 * 2 ** (semi / 12.0)
+        n = int(RATE * UNIT * beats)
+        for t in range(n):
+            env = math.exp(-3.0 * t / n) * min(1.0, t / 300.0)
+            v = (math.sin(2 * math.pi * f * t / RATE) +
+                 0.35 * math.sin(4 * math.pi * f * t / RATE))
+            s = int(11000 * env * v)
+            pcm.append(s)
+            pcm.append(s)
+    return pcm.tobytes()
+
+
+def load():
+    try:
+        if os.path.getsize(CACHE) > 100000:
+            return open(CACHE, "rb").read()
+    except OSError:
+        pass
+    data = synth()
+    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    with open(CACHE, "wb") as f:
+        f.write(data)
+    return data
+
+
+def main():
+    headset = len(sys.argv) > 1 and sys.argv[1] == "h"
+    data = load()
+
+    ctl = os.open("/dev/msm_audio_ctl", os.O_RDWR)
+    fcntl.ioctl(ctl, AUDIO_SWITCH_DEVICE, struct.pack(
+        "2I", DEV_HEADSET if headset else DEV_SPKR_MONO, 0))
+    fcntl.ioctl(ctl, AUDIO_SET_VOLUME, struct.pack("I", 100))
+
+    fd = os.open("/dev/msm_pcm_out", os.O_RDWR)
+    cfg = bytearray(32)
+    fcntl.ioctl(fd, AUDIO_GET_CONFIG, cfg)
+    bufsz, bufcnt = struct.unpack_from("2I", cfg)
+    struct.pack_into("2I", cfg, 8, 2, RATE)   # channel_count, sample_rate
+    fcntl.ioctl(fd, AUDIO_SET_CONFIG, bytes(cfg))
+    fcntl.ioctl(fd, AUDIO_START, 0)
+
+    for i in range(0, len(data), bufsz):
+        chunk = data[i:i + bufsz]
+        if len(chunk) < bufsz:
+            chunk += b"\x00" * (bufsz - len(chunk))
+        os.write(fd, chunk)
+
+    fcntl.ioctl(fd, AUDIO_STOP, 0)
+    os.close(fd)
+    os.close(ctl)
+
+
+if __name__ == "__main__":
+    main()

@@ -157,7 +157,7 @@ class Audio:
 
 
 class Ringer:
-    """Рингтон: короткие гудки в динамик, пока идёт входящий."""
+    """Рингтон: мелодия в динамик, пока идёт входящий."""
     def __init__(self):
         self.proc = None
         self.last = 0.0
@@ -166,14 +166,14 @@ class Ringer:
         if not ringing:
             return
         now = time.monotonic()
-        if now - self.last < 2.5:
+        if now - self.last < 5.0:
             return
         if self.proc and self.proc.poll() is None:
             return
         self.last = now
         try:
             self.proc = subprocess.Popen(
-                ["/usr/local/bin/beep", "s", "100"],
+                ["/usr/local/bin/ringtone"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
             pass
