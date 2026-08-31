@@ -76,8 +76,11 @@ def main():
             elif code == KEY_END and st != "idle":
                 at("ATH")
                 hung_up[0] = True
-            elif code in (KEY_HOME, KEY_MENU):
+            elif code == KEY_HOME:
                 raise_win("Домой")
+            elif code == KEY_MENU:
+                # главное меню IceWM (штатная привязка Ctrl+Esc)
+                sh("DISPLAY=:0 xdotool key ctrl+Escape")
             elif code == KEY_BACK:
                 # закрыть активное окно, но домашний экран не трогать
                 sh("DISPLAY=:0 sh -c '"
