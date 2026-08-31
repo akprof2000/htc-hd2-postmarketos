@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Системное меню HTC HD2 — открывается кнопкой Windows."""
+import fcntl
+import subprocess
+import tkinter as tk
+
+BG, FG, DIM = "#101828", "#e8eef5", "#7c8794"
+
+ACTIONS = [
+    ("✕  Закрыть окно", "#a4262c",
+     "sh -c 'n=$(xdotool getactivewindow getwindowname 2>/dev/null); "
+     "[ \"$n\" != \"Домой\" ] && wmctrl -c :ACTIVE:'"),
+    ("⛶  Во весь экран", "#0a6ebd",
+     "wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz"),
+    ("⌨  Клавиатура", "#5133b8", "/usr/local/bin/kbd"),
+    ("☀  Ярче", "#217a6b", "/usr/local/bin/backlight +"),
+    ("☾  Темнее", "#1b4a5e", "/usr/local/bin/backlight -"),
+    ("⏻  Питание…", "#4a4a56", "/usr/local/bin/powermenu"),
+]
+
+
+def main():
+    root = tk.Tk(className="sysmenu")
+    root.title("Меню")
+    root.configure(bg=BG)
+    root.geometry("480x740+0+0")
+    root.attributes("-topmost", True)
+
+    def run(cmd):
+        root.destroy()
+        subprocess.Popen("DISPLAY=:0 " + cmd, shell=True,
+                         start_new_session=True,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+
+    tk.Label(root, text="Меню", font=("DejaVu Sans", 20, "bold"),
+             bg=BG, fg=FG).pack(pady=(24, 14))
+    for name, color, cmd in ACTIONS:
+        tk.Button(root, text=name, font=("DejaVu Sans", 15, "bold"),
+                  bg=color, fg="white", relief="flat", bd=0, height=2,
+                  anchor="w", padx=24, command=lambda c=cmd: run(c)
+                  ).pack(fill="x", padx=20, pady=6)
+    tk.Button(root, text="Отмена", font=("DejaVu Sans", 15),
+              bg="#1c2a40", fg=DIM, relief="flat", bd=0, height=2,
+              command=root.destroy).pack(fill="x", padx=20, pady=(20, 8))
+
+    root.after(300, lambda: root.geometry("480x740+0+0"))
+    root.after(20000, root.destroy)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.sysmenu.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    main()

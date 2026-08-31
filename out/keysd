@@ -120,8 +120,8 @@ def main():
             elif code == KEY_HOME:
                 raise_win("Домой")
             elif code == KEY_MENU:
-                # главное меню IceWM (штатная привязка Ctrl+Esc)
-                sh("DISPLAY=:0 xdotool key ctrl+Escape")
+                # своё меню: IceWM-ное закрывалось релизом Esc от xdotool
+                sh("DISPLAY=:0 /usr/local/bin/sysmenu")
             elif code == KEY_BACK:
                 # закрыть активное окно, но домашний экран не трогать
                 sh("DISPLAY=:0 sh -c '"
