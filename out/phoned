@@ -342,11 +342,11 @@ def main():
                      r'([+-]\d+)', line)
         if m:
             y, mo, d, h, mi, s = (int(x) for x in m.groups()[:6])
-            off = int(m.group(7)) * 900          # четверти часа -> секунды
-            # NITZ-время локальное; минус смещение = UTC
+            # по спецификации поле времени NITZ — местное, но этот AMSS
+            # (сверено с NTP) кладёт туда УЖЕ UTC; смещение не вычитать
             import calendar
             try:
-                utc = calendar.timegm((2000 + y, mo, d, h, mi, s)) - off
+                utc = calendar.timegm((2000 + y, mo, d, h, mi, s))
             except (ValueError, OverflowError):
                 return
             if abs(utc - time.time()) > 120:
