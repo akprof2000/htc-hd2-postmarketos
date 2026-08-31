@@ -1,0 +1,10 @@
+DesktopBackgroundColor="rgb:20/28/40"
+DesktopBackgroundImage=""
+TaskBarBackground="rgb:28/30/48"
+ColorNormalTitleBar="rgb:28/30/50"
+ColorActiveTitleBar="rgb:38/58/98"
+ColorNormalTitleBarText="rgb:C0/C8/E0"
+ColorActiveTitleBarText="rgb:FF/FF/FF"
+GrabRootWindow=0
+ShowTaskBar=0
+RootMenuButton=1
