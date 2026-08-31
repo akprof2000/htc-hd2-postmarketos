@@ -90,6 +90,14 @@ def kbd_watcher():
 def main():
     threading.Thread(target=kbd_watcher, daemon=True).start()
     f = open(DEV, "rb")
+    # эксклюзивный захват: иначе X тоже видит кнопки, и, например, меню
+    # от кнопки Windows открывается нами и тут же закрывается X-ом
+    import fcntl
+    EVIOCGRAB = (1 << 30) | (4 << 16) | (ord('E') << 8) | 0x90
+    try:
+        fcntl.ioctl(f, EVIOCGRAB, 1)
+    except OSError:
+        pass
     pressed = {}
     hung_up = [False]
     while True:
@@ -126,7 +134,7 @@ def main():
                 if hung_up[0]:        # этим нажатием сбросили вызов —
                     hung_up[0] = False  # экран не трогаем
                 elif dur >= LONG:
-                    sh("poweroff")
+                    sh("DISPLAY=:0 /usr/local/bin/powermenu")
                 else:
                     screen_toggle()
 
