@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
-"""IceMobile: домашний экран HTC HD2.
+"""IceMobile: домашний экран HTC HD2 — плитки в духе Windows Phone.
 
-Сетка крупных кнопок под палец. Живёт на слое Below (winoptions) —
-любое открытое приложение ложится поверх, а «Домой» в панели задач
-возвращает сюда.
+Сверху статус: сигнал/тип сети (из /run/phone, кладёт phoned), большие
+часы и батарея. Ниже — сетка плиток. «Домой» в панели задач возвращает
+сюда из любого приложения.
 """
 import fcntl
+import os
 import subprocess
+import time
 import tkinter as tk
 
-BG   = "#101828"
-FG   = "#e8eef5"
-TILE = "#1c2a40"
-DIM  = "#7c8794"
+BG  = "#000000"
+FG  = "#ffffff"
+DIM = "#9aa4b0"
 
-APPS = [
-    ("Телефон",    "#2e5c38", "/usr/local/bin/phone-gui"),
-    ("СМС",  "#2e4a66", "/usr/local/bin/phone-sms"),
-    ("Терминал",   "#3a3a4a", "/usr/local/bin/term-max"),
-    ("Файлы",      "#4a3a2e", "pcmanfm"),
-    ("Клавиатура", "#33415c", "/usr/local/bin/kbd"),
-    ("Браузер",    "#3c2e4a", "netsurf-gtk3"),
-    ("Ярче  ☀+",   "#2a3a4a", "/usr/local/bin/backlight +"),
-    ("Темнее ☀−",  "#22303c", "/usr/local/bin/backlight -"),
+# плитка: (символ, подпись, цвет, команда, широкая?)
+TILES = [
+    ("☎", "Телефон",    "#1f7a33", "/usr/local/bin/phone-gui", False),
+    ("✉", "СМС",        "#0a6ebd", "/usr/local/bin/phone-sms", False),
+    (">_",     "Терминал",   "#4a4a56", "/usr/local/bin/term-max",  False),
+    ("▤", "Файлы",      "#8a5a2e", "pcmanfm",                  False),
+    ("⌨", "Клава",      "#5133b8", "/usr/local/bin/kbd",       False),
+    ("@",      "Браузер",    "#a4262c", "netsurf-gtk3",             False),
+    ("☀", "Ярче",       "#217a6b", "/usr/local/bin/backlight +",  False),
+    ("☾", "Темнее",     "#1b4a5e", "/usr/local/bin/backlight -",  False),
+    ("↻", "Графика",    "#5d5d3a", "/usr/local/bin/x-restart", True),
 ]
 
 
@@ -31,40 +34,92 @@ def run(cmd):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def main():
-    root = tk.Tk(className="icehome")
-    root.title("Домой")
-    root.configure(bg=BG)
-    root.geometry("480x740+0+0")
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
 
-    tk.Label(root, text="HTC HD2", font=("DejaVu Sans", 20, "bold"),
-             bg=BG, fg=FG).pack(pady=(24, 2))
-    tk.Label(root, text="postmarketOS · IceMobile",
-             font=("DejaVu Sans", 11), bg=BG, fg=DIM).pack(pady=(0, 12))
 
-    grid = tk.Frame(root, bg=BG)
-    grid.pack(expand=True, fill="both", padx=14, pady=(0, 8))
-    for i, (name, color, cmd) in enumerate(APPS):
-        b = tk.Button(grid, text=name, font=("DejaVu Sans", 14, "bold"),
-                      bg=color, fg="white", activebackground="#2a3a4a",
-                      relief="flat", bd=0, wraplength=200,
-                      command=lambda c=cmd: run(c))
-        b.grid(row=i // 2, column=i % 2, sticky="nsew", padx=6, pady=6)
-    for c in range(2):
-        grid.columnconfigure(c, weight=1)
-    for r in range((len(APPS) + 1) // 2):
-        grid.rowconfigure(r, weight=1)
-
-    tk.Button(root, text="Перезапустить графику",
-              font=("DejaVu Sans", 12), bg=BG, fg=DIM, relief="flat", bd=0,
-              command=lambda: run("/usr/local/bin/x-restart")
-              ).pack(fill="x", pady=(0, 10))
-
-    def fix_place():
+class Home:
+    def __init__(self, root):
+        self.root = root
+        root.title("Домой")
+        root.configure(bg=BG)
         root.geometry("480x740+0+0")
-    root.after(300, fix_place)
-    root.after(1200, fix_place)
-    root.mainloop()
+
+        # ── статус: сигнал слева, батарея справа ──────────────────────
+        top = tk.Frame(root, bg=BG)
+        top.pack(fill="x", padx=16, pady=(10, 0))
+        self.sig = tk.Label(top, text="", font=("DejaVu Sans", 12),
+                            bg=BG, fg=DIM, anchor="w")
+        self.sig.pack(side="left")
+        self.batt = tk.Label(top, text="", font=("DejaVu Sans", 12),
+                             bg=BG, fg=DIM, anchor="e")
+        self.batt.pack(side="right")
+
+        # ── большие часы + дата (WM 6.5) ──────────────────────────────
+        self.clock = tk.Label(root, text="", font=("DejaVu Sans", 44, "bold"),
+                              bg=BG, fg=FG)
+        self.clock.pack(pady=(2, 0))
+        self.date = tk.Label(root, text="", font=("DejaVu Sans", 12),
+                             bg=BG, fg=DIM)
+        self.date.pack(pady=(0, 8))
+
+        # ── плитки ────────────────────────────────────────────────────
+        grid = tk.Frame(root, bg=BG)
+        grid.pack(expand=True, fill="both", padx=10, pady=(0, 10))
+        row = col = 0
+        for sym, name, color, cmd, wide in TILES:
+            t = tk.Frame(grid, bg=color)
+            span = 2 if wide else 1
+            t.grid(row=row, column=col, columnspan=span,
+                   sticky="nsew", padx=5, pady=5)
+            t.grid_propagate(False)
+            s = tk.Label(t, text=sym, font=("DejaVu Sans", 30, "bold"),
+                         bg=color, fg="white")
+            s.place(relx=0.5, rely=0.40, anchor="center")
+            n = tk.Label(t, text=name, font=("DejaVu Sans", 12, "bold"),
+                         bg=color, fg="white")
+            n.place(x=10, rely=1.0, y=-8, anchor="sw")
+            for w in (t, s, n):
+                w.bind("<Button-1>", lambda _e, c=cmd: run(c))
+            col += span
+            if col >= 2:
+                row, col = row + 1, 0
+        for c in range(2):
+            grid.columnconfigure(c, weight=1, uniform="t")
+        for r in range(row + (1 if col else 0)):
+            grid.rowconfigure(r, weight=1, uniform="t")
+
+        self.root.after(300, self.fix_place)
+        self.root.after(1200, self.fix_place)
+        self.tick()
+
+    def fix_place(self):
+        self.root.geometry("480x740+0+0")
+
+    def tick(self):
+        self.clock.config(text=time.strftime("%H:%M"))
+        d = time.strftime("%d.%m.%Y")
+        wd = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"][int(
+            time.strftime("%w")) - 1]
+        self.date.config(text="%s · %s" % (wd, d))
+
+        csq = read("/run/phone/csq")
+        n = min(int(csq), 5) if csq.isdigit() else 0
+        bars = "".join("▁▂▃▄▅"[i] if i < n else "·"
+                       for i in range(5))
+        net = read("/run/phone/net").split()
+        self.sig.config(text="%s %s" % (bars, net[0] if net else ""))
+
+        cap = read("/sys/class/power_supply/battery/capacity", "?")
+        chg = read("/sys/class/power_supply/battery/status")
+        flag = "⚡" if chg in ("Charging", "Full") else ""
+        self.batt.config(text="%s▮ %s%%" % (flag, cap))
+
+        self.root.after(5000, self.tick)
 
 
 if __name__ == "__main__":
@@ -73,4 +128,6 @@ if __name__ == "__main__":
         fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         raise SystemExit("домашний экран уже запущен")
-    main()
+    root = tk.Tk(className="icehome")
+    Home(root)
+    root.mainloop()
