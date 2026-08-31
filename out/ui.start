@@ -11,6 +11,8 @@ set -x 2>&9
 	# msmfb после перезагрузок может остаться в 16bpp - X тогда уродлив
 	# после убитого X остаются замки - новый X с ними не стартует
 	rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
+	setsid /usr/local/bin/phoned </dev/null >>/var/log/phoned.log 2>&1 &
+	/usr/local/bin/backlight 180 >/dev/null 2>&1
 	busybox fbset -depth 32 2>/dev/null || fbset -depth 32 2>/dev/null
 	setsid sh -c 'PIXMAN_DISABLE=arm-neon exec /usr/libexec/Xorg :0 vt1' </dev/null >/var/log/x.log 2>&1 &
 	i=0
@@ -26,7 +28,9 @@ set -x 2>&9
 		}
 		respawn icewm &
 		sleep 3
-		respawn /usr/local/bin/term-max &
+		/usr/local/bin/term-max &
+		setsid /usr/local/bin/home </dev/null >/dev/null 2>&1 &
+		sleep 2; /usr/local/bin/kbd >/dev/null 2>&1
 		exec sleep 2147483647
 	' </dev/null >/var/log/ui.log 2>&1 &
 ) &
