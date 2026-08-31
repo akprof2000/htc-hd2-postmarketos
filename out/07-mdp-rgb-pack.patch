@@ -1,0 +1,19 @@
+--- a/drivers/video/msm/mdp.c
++++ b/drivers/video/msm/mdp.c
+@@ -583,13 +583,12 @@
+ 		format = DMA_IBUF_FORMAT_RGB888_OR_ARGB8888;
+ 		break;
+ #else
++	/* fb buffer is 4 bytes/pixel; treat 24 as 32. RGB pack matches the
++	 * standard red@16 visual so physical colours stay correct. */
+ 	case 24:
+-		format = DMA_IBUF_FORMAT_RGB888;
+-		pack_pattern = DMA_PACK_PATTERN_BGR;
+-		break;
+ 	case 32:
+ 		format = DMA_IBUF_FORMAT_XRGB8888;
+-		pack_pattern = DMA_PACK_PATTERN_BGR;
++		pack_pattern = DMA_PACK_PATTERN_RGB;
+ 		break;
+ #endif
+ 	default:

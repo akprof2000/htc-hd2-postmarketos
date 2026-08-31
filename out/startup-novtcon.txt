@@ -1,0 +1,6 @@
+set mtype 2524
+set ramaddr 0x11800000
+set ramsize 0x1e400000
+set KERNEL zImage
+set cmdline "PMOS_NO_OUTPUT_REDIRECT lpj=499435 initcall_debug ignore_loglevel"
+boot

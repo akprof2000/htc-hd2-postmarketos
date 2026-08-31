@@ -1,0 +1,160 @@
+=== netdump start, uptime 17.57 ===
+--- видимые сети ---
+IN-USE  BSSID              SSID              MODE   CHAN  RATE         SIGNAL  BARS  SECURITY  
+        A0:F3:C1:8F:38:51  TP-LINK_8F3851    Infra  11    135 Mbit/s   80      ▂▄▆_  WPA2      
+        74:AC:B9:64:B5:85  ubnt-wifi         Infra  6     195 Mbit/s   79      ▂▄▆_  WPA2 WPA3 
+        CC:D8:43:B9:A2:26  Keenetic-Alf      Infra  1     270 Mbit/s   59      ▂▄▆_  WPA2 WPA3 
+        CC:2D:21:71:B5:02  TP-LINK_Alf_5GHz  Infra  2     270 Mbit/s   55      ▂▄__  WPA2      
+        3C:6A:D2:07:CA:A7  TP52              Infra  8     1170 Mbit/s  47      ▂▄__  WPA2      
+        4C:5E:0C:70:BC:19  Trend_GRB         Infra  6     270 Mbit/s   44      ▂▄__  WPA1 WPA2 
+        44:13:D0:B9:8A:7B  MGTS_GPON_FFA4    Infra  9     130 Mbit/s   30      ▂___  WPA2      
+        08:D5:9D:86:9E:E6  AKADO-9EE0        Infra  1     270 Mbit/s   29      ▂___  WPA2      
+        B4:E5:4C:79:49:07  RT-WiFi-4906      Infra  10    270 Mbit/s   22      ▂___  WPA1 WPA2 
+        94:4A:0C:CE:A9:EB  MGTS_GPON_8847    Infra  1     130 Mbit/s   19      ▂___  WPA1 WPA2 
+        60:31:97:EB:11:4C  Keenetic-2435     Infra  8     270 Mbit/s   17      ▂___  WPA2      
+        54:C2:50:91:53:C9  MTS_GPON_9153c8   Infra  8     130 Mbit/s   14      ▂___  WPA2      
+        A0:CF:F5:CA:BF:D4  MTS_GPON_8EB8     Infra  6     130 Mbit/s   9       ▂___  WPA2      
+===== срез 1, uptime 47.93 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        fe80::7e61:93ff:fe37:3c26/64 
+===== срез 2, uptime 58.29 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 3, uptime 68.62 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 4, uptime 78.96 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 5, uptime 89.28 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 6, uptime 99.61 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 7, uptime 109.93 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 8, uptime 120.26 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 9, uptime 130.58 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 10, uptime 140.91 =====
+wlan0:wifi:connecting (configuring):home
+wlan0            DORMANT        
+===== срез 11, uptime 151.23 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 12, uptime 161.61 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 13, uptime 171.94 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 14, uptime 182.27 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 15, uptime 192.60 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 16, uptime 202.92 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 17, uptime 213.27 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 18, uptime 223.60 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 19, uptime 233.92 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 20, uptime 244.25 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 21, uptime 254.58 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+===== срез 22, uptime 264.91 =====
+wlan0:wifi:disconnected:
+wlan0            DORMANT        
+--- итог: nmcli dev ---
+lo:loopback:connected (externally):lo
+wlan0:wifi:disconnected:
+dummy0:dummy:unmanaged:
+ifb0:ifb:unmanaged:
+ifb1:ifb:unmanaged:
+sit0:iptunnel:unmanaged:
+--- итог: ip addr ---
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+dummy0           DOWN           
+ifb0             DOWN           
+ifb1             DOWN           
+rmnet0           DOWN           
+rmnet1           DOWN           
+rmnet2           DOWN           
+rmnet3           DOWN           
+rmnet4           DOWN           
+rmnet5           DOWN           
+rmnet6           DOWN           
+rmnet7           DOWN           
+sit0             DOWN           
+ip6tnl0          DOWN           
+wlan0            DORMANT        
+--- итог: ip route ---
+--- журнал NetworkManager ---
+(нет /var/log/messages)
+--- dmesg: только Wi-Fi ---
+[   82.597290] =========== WLAN placed in RESET ========
+[   82.608062] dhd_prot_ioctl : bus is down. we have nothing to do
+[   82.608062] wlan0: set cur_etheraddr failed
+[   82.715972] Compiled in drivers/net/wireless/bcmdhd on Aug 29 2026 at 17:31:25
+[   83.131408] =========== WLAN going back to live  ========
+[   83.146301] DHD: dongle ram size is set to 294912(orig 294912)
+[   83.190490] dhdsdio_write_vars: Download, Upload and compare of NVRAM succeeded.
+[   83.274322] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   83.401306] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   83.401336] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[   84.651489] =========== WLAN placed in RESET ========
+[   85.225830] =========== WLAN going back to live  ========
+[   85.368682] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   85.495758] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   85.495849] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[   86.152770] =========== WLAN placed in RESET ========
+[   86.691436] =========== WLAN going back to live  ========
+[   86.834411] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   86.974212] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   86.974243] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[  112.590637] =========== WLAN placed in RESET ========
+[  112.601165] dhd_prot_ioctl : bus is down. we have nothing to do
+[  112.601196] wlan0: set cur_etheraddr failed
+[  112.709136] Compiled in drivers/net/wireless/bcmdhd on Aug 29 2026 at 17:31:25
+[  113.124725] =========== WLAN going back to live  ========
+[  113.139678] DHD: dongle ram size is set to 294912(orig 294912)
+[  113.183929] dhdsdio_write_vars: Download, Upload and compare of NVRAM succeeded.
+[  113.267486] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[  113.395263] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  113.395294] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[  114.775054] =========== WLAN placed in RESET ========
+[  115.345184] =========== WLAN going back to live  ========
+[  115.487731] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[  115.618469] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  115.618499] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[  116.274688] =========== WLAN placed in RESET ========
+[  116.812622] =========== WLAN going back to live  ========
+[  116.955505] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[  117.082763] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  117.082794] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[  142.583953] =========== WLAN placed in RESET ========
+[  142.599945] dhd_prot_ioctl : bus is down. we have nothing to do
+[  142.599975] wlan0: set cur_etheraddr failed
+[  142.701904] Compiled in drivers/net/wireless/bcmdhd on Aug 29 2026 at 17:31:25
+[  143.117309] =========== WLAN going back to live  ========
+[  143.132293] DHD: dongle ram size is set to 294912(orig 294912)
+[  143.176452] dhdsdio_write_vars: Download, Upload and compare of NVRAM succeeded.
+[  143.260375] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[  143.424926] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  143.424957] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+=== netdump done, uptime 275.88 ===

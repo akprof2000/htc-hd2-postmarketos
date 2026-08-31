@@ -1,0 +1,40 @@
+=== старт, uptime 14.83 ===
+--- было ---
+enable:    1
+functions: mass_storage
+state:     DISCONNECTED
+--- включаю rndis ---
+--- стало ---
+enable:    1
+functions: mass_storage,adb
+state:     DISCONNECTED
+--- интерфейсы ---
+(usb-интерфейса пока нет)
+usb0 так и не появился
+--- dmesg по usb ---
+[    1.885009] [USBH] USB exited from low power mode
+[    1.885040] [USB] OTG_STATE_B_IDLE state
+[    1.885040] [USBH] !b_sess_vld && id
+[    1.885040] [USBH] msm_otg_reset
+[    1.885101] [USBH:ERR] usb hs_clk assert failed
+[    1.885101] [USBH:ERR] phy_reset failed
+[    1.885131] [USB] OTG runtime suspend
+[    1.885131] [USBH] msm_otg_suspend
+[    1.885162] [USBH] USB in low power mode
+[    1.961944] [USB] android_enable_function: mass_storage enabled
+[    1.961975] [USB] android_bind_enabled_functions bind name: mass_storage
+[    1.962005] [USB] android_usb_init_work: ret: 0
+[   14.947753] [USB] enable_store, buff: 0
+[   15.960845] [USB] idVendor_store: 18d1
+[   15.961059] [USB] idProduct_store: 4ee3
+[   15.961212] [USB] functions_store: buff: rndis
+[   15.961395] [USB] iManufacturer_store: postmarketOS
+[   15.961578] [USB] iProduct_store: htc-leo
+[   16.975036] [USB] android_switch_function: 3, before 1
+[   16.975067] [USB] # mass_storage
+[   16.975097] [USB] # adb
+[   16.975097] [USB] android_switch_function: vendor_id=0xbb4, product_id=0xc02
+[   16.975128] [USB] android_bind_enabled_functions bind name: mass_storage
+[   16.975128] [USB] android_bind_enabled_functions bind name: adb
+[   17.780761] [USB] enable_store, buff: 1
+=== готово, uptime 46.25 ===

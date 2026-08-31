@@ -1,0 +1,10 @@
+=== старт, uptime 14.61 ===
+срез 1 (uptime 15.69): wpa_state=INTERFACE_DISABLED  | nm: 
+срез 2 (uptime 21.82): wpa_state=INTERFACE_DISABLED  | nm: wlan0:connecting (configuring)
+срез 3 (uptime 29.79): bssid=cc:d8:43:b9:a2:26 ssid=Keenetic-Alf wpa_state=COMPLETED  | nm: wlan0:connecting (configuring)
+>>> АССОЦИАЦИЯ ЕСТЬ <<<
+--- останавливаю NetworkManager, supplicant остаётся ---
+
+ *   Stopping networkmanager ... [ ok ]
+supplicant после остановки NM: wpa_state=INTERFACE_DISABLED
+--- беру адрес ---

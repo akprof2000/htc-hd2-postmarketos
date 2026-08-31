@@ -1,0 +1,28 @@
+Clear stale GPIO interrupts before installing chained handler
+
+msm_init_gpio() installs the chained handler for INT_GPIO_GROUP1/2 first
+and only then writes 0 to int_en. If the previous OS (Windows Mobile via
+HaRET) left interrupts enabled with pending status bits, the handler
+fires immediately into an endless storm and the kernel hangs right here -
+initcall_debug shows "calling msm_init_gpio" with no return. Whether it
+hangs depends on what WinMo happened to leave behind, which is why the
+boot was flaky. Disable and clear everything before the handler exists.
+
+--- a/arch/arm/mach-msm/gpio.c
++++ b/arch/arm/mach-msm/gpio.c
+@@ -507,6 +507,15 @@ static int __init msm_init_gpio(void)
+ 		set_irq_flags(i, IRQF_VALID);
+ 	}
+
++	/* WinMo/HaRET can leave GPIO interrupts enabled with pending status.
++	 * Disable and clear them BEFORE the chained handler is installed,
++	 * otherwise a stale pending bit storms the handler forever. */
++	for (i = 0; i < ARRAY_SIZE(msm_gpio_chips); i++) {
++		__raw_writel(0, msm_gpio_chips[i].regs.int_en);
++		__raw_writel(-1, msm_gpio_chips[i].regs.int_clear);
++	}
++	mb();
++
+ 	irq_set_chained_handler(INT_GPIO_GROUP1, msm_gpio_irq_handler);
+ 	irq_set_chained_handler(INT_GPIO_GROUP2, msm_gpio_irq_handler);
+

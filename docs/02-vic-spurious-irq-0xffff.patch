@@ -1,0 +1,22 @@
+Handle the 0xFFFF "no interrupt pending" value returned by the MSM VIC.
+
+When the kernel is entered from HaRET (i.e. from within Windows Mobile) rather
+than from cLK/MAGLDR, VIC_IRQ_VEC_PEND_RD returns 0x0000FFFF instead of
+0xFFFFFFFF when no interrupt is pending. The existing check only tests for
+0xFFFFFFFF, so the value is taken for a valid interrupt number and the kernel
+drowns in "Bad IRQ65535" from handle_IRQ(), never making progress.
+
+The working 2.6.32 HD2 kernels (tytung/android_kernel_htcleo-2.6.32) carry the
+same three instructions; they were never forwarded to the 3.0 qsd8k-legacy tree
+because that tree is only ever booted through cLK.
+
+--- a/arch/arm/mach-msm/include/mach/entry-macro-vic.S
++++ b/arch/arm/mach-msm/include/mach/entry-macro-vic.S
+@@ -34,4 +34,7 @@
+ 	ldr	\irqnr, [\base, #0xD0]
+ 	ldr	\irqnr, [\base, #0xD4]
+ 	cmp	\irqnr, #0xffffffff
++	movne	\tmp, #0xff
++	orrne	\tmp, #0xff00
++	cmpne	\irqnr, \tmp
+ 	.endm

@@ -1,0 +1,39 @@
+# приватное - никогда не публиковать
+out/ssh/
+*.key
+*_key*
+
+# гигабайты образов и бэкапов
+backup/
+out/*.img
+out/zImage*
+out/*.xwd
+out/initrd*
+out/PMOS/initrd*
+logs/*.xwd
+logs/*.raw
+logs/last_kmsg*
+logs/hang.txt
+
+# рабочий мусор
+nohup.out
+*.tmp
+
+# 303 МБ чужой прошивки — не наше и не нужно в истории
+lineage-15.1-*.zip
+# собранные бинарники (пересобираются скриптами)
+out/beep
+out/fbswap
+out/kexec-arm*
+out/bcm4329.hcd
+out/default.acdb
+out/config-ics-tytung
+out/config-lineage-htcleo
+out/ICSK/
+out/PMOS/
+# распакованные пакеты (симлинки ломают git на Windows)
+out/iw/
+out/fw/
+# проприетарные блобы из чужих прошивок — не перераспространяем
+out/fw-lineage/
+out/iw.tgz

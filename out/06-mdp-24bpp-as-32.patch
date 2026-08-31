@@ -1,0 +1,15 @@
+--- a/drivers/video/msm/mdp.c
++++ b/drivers/video/msm/mdp.c
+@@ -583,10 +583,9 @@
+ 		format = DMA_IBUF_FORMAT_RGB888_OR_ARGB8888;
+ 		break;
+ #else
++	/* fb хранится 4 байта/пиксель всегда: 24 трактуем как 32, иначе MDP
++	 * читает буфер со сдвигом и цвета X уходят в оранжевый */
+ 	case 24:
+-		format = DMA_IBUF_FORMAT_RGB888;
+-		pack_pattern = DMA_PACK_PATTERN_BGR;
+-		break;
+ 	case 32:
+ 		format = DMA_IBUF_FORMAT_XRGB8888;
+ 		pack_pattern = DMA_PACK_PATTERN_BGR;

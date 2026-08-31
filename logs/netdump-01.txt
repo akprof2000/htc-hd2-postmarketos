@@ -1,0 +1,175 @@
+hostname: htc-leo
+=== netdump.txt ===
+=== netdump, uptime 17.53 2.23 ===
+--- rfkill ---
+0: bcm4329: Bluetooth
+	Soft blocked: yes
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+2: brcmfmac-wifi: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+--- nmcli dev ---
+lo:loopback:connected (externally):lo
+wlan0:wifi:disconnected:
+dummy0:dummy:unmanaged:
+ifb0:ifb:unmanaged:
+ifb1:ifb:unmanaged:
+sit0:iptunnel:unmanaged:
+--- nmcli con ---
+lo:6f90772a-48da-4fcc-a616-8e7aa3bfdfa9:loopback:lo
+home:8f2a1c40-3b7e-4d21-9c55-6e0a7b1d4f83:802-11-wireless:
+--- ip link ---
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+dummy0           DOWN           b2:02:68:a9:58:e8 <BROADCAST,NOARP> 
+ifb0             DOWN           56:6f:d2:d7:a6:e5 <BROADCAST,NOARP> 
+ifb1             DOWN           c6:93:ee:74:bc:e2 <BROADCAST,NOARP> 
+rmnet0           DOWN           82:ed:c0:3e:cd:22 <BROADCAST,MULTICAST> 
+rmnet1           DOWN           da:5f:04:1c:b5:b5 <BROADCAST,MULTICAST> 
+rmnet2           DOWN           d6:d3:57:cb:bf:c9 <BROADCAST,MULTICAST> 
+rmnet3           DOWN           52:ff:5d:8c:03:b1 <BROADCAST,MULTICAST> 
+rmnet4           DOWN           26:72:e7:b6:1a:75 <BROADCAST,MULTICAST> 
+rmnet5           DOWN           82:8b:5b:3b:7d:ba <BROADCAST,MULTICAST> 
+rmnet6           DOWN           96:34:85:fc:30:d0 <BROADCAST,MULTICAST> 
+rmnet7           DOWN           26:eb:07:c9:4d:5d <BROADCAST,MULTICAST> 
+sit0             DOWN           0.0.0.0 <NOARP> 
+ip6tnl0          DOWN           :: <NOARP> 
+wlan0            DORMANT        7c:61:93:37:3c:26 <NO-CARRIER,BROADCAST,MULTICAST,UP,LOWER_UP> 
+--- ip addr ---
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+dummy0           DOWN           
+ifb0             DOWN           
+ifb1             DOWN           
+rmnet0           DOWN           
+rmnet1           DOWN           
+rmnet2           DOWN           
+rmnet3           DOWN           
+rmnet4           DOWN           
+rmnet5           DOWN           
+rmnet6           DOWN           
+rmnet7           DOWN           
+sit0             DOWN           
+ip6tnl0          DOWN           
+wlan0            DORMANT        fe80::7e61:93ff:fe37:3c26/64 
+--- ip route ---
+--- wpa_supplicant ---
+2204 /sbin/wpa_supplicant
+--- NetworkManager ---
+2227 /usr/sbin/NetworkManager
+--- dropbear ---
+2285 /usr/sbin/dropbear
+--- видимые сети ---
+IN-USE  BSSID  SSID  MODE  CHAN  RATE  SIGNAL  BARS  SECURITY 
+--- пробую поднять профиль home ---
+Error: Connection activation failed: The Wi-Fi network could not be found
+--- после активации: ip addr ---
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+dummy0           DOWN           
+ifb0             DOWN           
+ifb1             DOWN           
+rmnet0           DOWN           
+rmnet1           DOWN           
+rmnet2           DOWN           
+rmnet3           DOWN           
+rmnet4           DOWN           
+rmnet5           DOWN           
+rmnet6           DOWN           
+rmnet7           DOWN           
+sit0             DOWN           
+ip6tnl0          DOWN           
+wlan0            DORMANT        
+--- после активации: ip route ---
+--- nmcli dev ---
+lo:loopback:connected (externally):lo
+wlan0:wifi:disconnected:
+dummy0:dummy:unmanaged:
+ifb0:ifb:unmanaged:
+ifb1:ifb:unmanaged:
+sit0:iptunnel:unmanaged:
+--- OpenRC: что запущено ---
+Runlevel: shutdown
+ killprocs                                                         [  stopped  ]
+ savecache                                                         [  stopped  ]
+ mount-ro                                                          [  stopped  ]
+Runlevel: nonetwork
+Runlevel: default
+ swapfile                                                          [  started  ]
+ postmarketos-zram-swap                                            [  stopped  ]
+ haveged                                                           [  started  ]
+ cgroups                                                           [  started  ]
+ udev-postmount                                                    [  started  ]
+ dbus                                                              [  started  ]
+ wpa_supplicant                                        [  started 00:01:44 (0) ]
+ nftables                                                          [  stopped  ]
+ networkmanager                                        [  started 00:01:44 (0) ]
+ chronyd                                                           [  started  ]
+ sleep-inhibitor                                       [  started 00:01:41 (0) ]
+ dropbear                                                          [  started  ]
+ rfkill                                                            [  started  ]
+ routewrangler                                         [  started 00:01:42 (0) ]
+Runlevel: sysinit
+ devfs                                                             [  started  ]
+ udev                                                              [  started  ]
+ dmesg                                                             [  started  ]
+ udev-trigger                                                      [  started  ]
+ udev-settle                                                       [  started  ]
+Runlevel: boot
+ modules                                                           [  started  ]
+ hwclock                                                           [  started  ]
+ hostname                                                          [  started  ]
+ sysctl                                                            [  started  ]
+ tmpfs                                                             [  started  ]
+ bootmisc                                                          [  started  ]
+ logbookd                                                          [  started  ]
+ msm-fb-refresher                                      [  started 00:01:46 (0) ]
+Dynamic Runlevel: hotplugged
+Dynamic Runlevel: needed/wanted
+ sysfs                                                             [  started  ]
+ fsck                                                              [  started  ]
+ root                                                              [  started  ]
+ localmount                                                        [  started  ]
+Dynamic Runlevel: manual
+--- хвост dmesg ---
+[   92.626312] =========== WLAN placed in RESET ========
+[   92.642883] dhd_prot_ioctl : bus is down. we have nothing to do
+[   92.642944] wlan0: set cur_etheraddr failed
+
+[   92.744506] Dongle Host Driver, version 5.90.195.114
+[   92.744506] Compiled in drivers/net/wireless/bcmdhd on Aug 29 2026 at 17:31:25
+[   92.744537] wl_android_wifi_on in
+[   92.744537] wifi_set_power = 1
+[   92.744567] htcleo_wifi_power: 1
+[   93.160308] =========== WLAN going back to live  ========
+[   93.160308] sdio_reset_comm():
+[   93.172485] F1 signature read @0x18000000=0x9934329
+[   93.175262] DHD: dongle ram size is set to 294912(orig 294912)
+[   93.219177] dhdsdio_write_vars: Download, Upload and compare of NVRAM succeeded.
+[   93.294677] dhdsdio_readshared: sdpcm_shared version 1 in dhd is different than sdpcm_shared version 2 in dongle
+[   93.295410] dhdsdio_readshared: sdpcm_shared version 1 in dhd is different than sdpcm_shared version 2 in dongle
+[   93.302978] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   93.433044] CFG80211-ERROR) wl_update_wiphybands : error get mimo_bw_cap (-23)
+[   93.433776] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   93.433807] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[   93.450744] CFG80211-ERROR) wl_run_escan :  Escan set error (-23)
+[   93.450775] CFG80211-ERROR) wl_run_escan : error (-23)
+[   93.450805] CFG80211-ERROR) wl_cfg80211_scan : scan error (-23)
+[   93.576873] CFG80211-ERROR) wl_run_escan :  Escan set error (-23)
+[   93.576934] CFG80211-ERROR) wl_run_escan : error (-23)
+[   93.576965] CFG80211-ERROR) wl_cfg80211_scan : scan error (-23)
+[   97.040313] CFG80211-ERROR) wl_run_escan :  Escan set error (-23)
+[   97.040344] CFG80211-ERROR) wl_run_escan : error (-23)
+[   97.040374] CFG80211-ERROR) wl_cfg80211_scan : scan error (-23)
+[  101.935852] call alarm, type 2, func ds2746_battery_alarm+0x0/0x44, 121888965620 (s 101888965620)
+[  101.937652] [BATT] V=3911(643) I=-247(fffffd8f) C=1220.0/1230(10fd) id=4(95) T=280(116) KADC=786
+[  101.937683] [BATT] voltage stable
+[  101.937683] batt: ds2784_notify: 1 98 at 101907794941 (1970-01-01 00:01:41.906604824 UTC)
+[  101.937713] batt: batt:power_supply_changed: battery at 101907855976 (1970-01-01 00:01:41.906635342 UTC)
+[  102.040893] CFG80211-ERROR) wl_run_escan :  Escan set error (-23)
+[  102.040893] CFG80211-ERROR) wl_run_escan : error (-23)
+[  102.040924] CFG80211-ERROR) wl_cfg80211_scan : scan error (-23)
+[  109.041107] CFG80211-ERROR) wl_run_escan :  Escan set error (-23)
+[  109.041168] CFG80211-ERROR) wl_run_escan : error (-23)
+[  109.041198] CFG80211-ERROR) wl_cfg80211_scan : scan error (-23)
+=== netdump done, uptime 117.66 88.32 ===

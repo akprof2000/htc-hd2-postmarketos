@@ -1,0 +1,102 @@
+=== netdump, uptime 17.64 ===
+--- iw reg get (регуляторный домен) ---
+global
+country 00: DFS-UNSET
+	(2402 - 2472 @ 40), (6, 20), (N/A)
+	(2457 - 2482 @ 40), (6, 20), (N/A), NO-IR
+	(2474 - 2494 @ 20), (6, 20), (N/A), NO-OFDM, NO-IR
+	(5170 - 5250 @ 40), (6, 20), (N/A), NO-IR
+	(5735 - 5835 @ 40), (6, 20), (N/A), NO-IR
+
+--- iw phy: каналы 2.4 ГГц ---
+			* 2412 MHz [1] (20.0 dBm)
+			* 2417 MHz [2] (20.0 dBm)
+			* 2422 MHz [3] (20.0 dBm)
+			* 2427 MHz [4] (20.0 dBm)
+			* 2432 MHz [5] (20.0 dBm)
+			* 2437 MHz [6] (20.0 dBm)
+			* 2442 MHz [7] (20.0 dBm)
+			* 2447 MHz [8] (20.0 dBm)
+			* 2452 MHz [9] (20.0 dBm)
+			* 2457 MHz [10] (20.0 dBm)
+			* 2462 MHz [11] (20.0 dBm)
+			* 2467 MHz [12] (20.0 dBm)
+			* 2472 MHz [13] (20.0 dBm)
+			* 2484 MHz [14] (20.0 dBm) (no IR)
+		Bitrates (non-HT):
+			* 1.0 Mbps
+--- флаги каналов (disabled / no IR / passive) ---
+			* 2412 MHz [1] (20.0 dBm)
+			* 2417 MHz [2] (20.0 dBm)
+			* 2422 MHz [3] (20.0 dBm)
+			* 2427 MHz [4] (20.0 dBm)
+			* 2432 MHz [5] (20.0 dBm)
+			* 2437 MHz [6] (20.0 dBm)
+			* 2442 MHz [7] (20.0 dBm)
+			* 2447 MHz [8] (20.0 dBm)
+			* 2452 MHz [9] (20.0 dBm)
+			* 2457 MHz [10] (20.0 dBm)
+			* 2462 MHz [11] (20.0 dBm)
+			* 2467 MHz [12] (20.0 dBm)
+			* 2472 MHz [13] (20.0 dBm)
+			* 2484 MHz [14] (20.0 dBm) (no IR)
+--- crda / regdb в системе ---
+ls: /sbin/crda: No such file or directory
+ls: /usr/sbin/crda: No such file or directory
+/lib/crda:
+total 12
+-rw-r--r--    1 root     root          8304 Dec  5  2025 regulatory.bin
+-rw-r--r--    1 root     root          6328 Dec  5  2025 /lib/firmware/regulatory.db
+-rw-r--r--    1 root     root          1085 Dec  5  2025 /lib/firmware/regulatory.db.p7s
+--- wpa_supplicant status ---
+Failed to connect to non-global ctrl_ifname: wlan0  error: No such file or directory
+--- пробую подключиться и смотрю ---
+Error: Connection activation failed: The Wi-Fi network could not be found
+== срез 1: wlan0:disconnected: | wlan0 DORMANT 
+== срез 2: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 3: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 4: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 5: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 6: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 7: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 8: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 9: wlan0:connecting (configuring):home | wlan0 DORMANT 
+== срез 10: wlan0:disconnected: | wlan0 DORMANT 
+== срез 11: wlan0:disconnected: | wlan0 DORMANT 
+== срез 12: wlan0:disconnected: | wlan0 DORMANT 
+--- dmesg: ассоциация и регуляторка ---
+[    0.086242] Bluetooth: HCI device and connection manager initialized
+[    0.087463] cfg80211: Calling CRDA to update world regulatory domain
+[    1.312103] msm_i2c msm_i2c.0: [MSM I2C Err] status = 0xC8, addr = 0x5C, flags = 0x00, last_addr = 00, reg = 0x00, last_reg = 0x00, last_flag = 0x00, cnt = 1, pos = 0
+[    1.312225] msm_i2c msm_i2c.0: [MSM I2C Err] status = 0xC8, addr = 0x34, flags = 0x00, last_addr = 5C, reg = 0x00, last_reg = 0x00, last_flag = 0x00, cnt = 1, pos = 0
+[    1.326538] spi_bma150_probe: G-sensor connect with microP: start initial, kvalue = 0x0
+[    1.358489] htcleo_backlight_probe: HTCLeo Backlight connect with microP: Probe
+[    1.403106] calling  crypto_authenc_module_init+0x0/0x1c @ 8
+[    1.403137] initcall crypto_authenc_module_init+0x0/0x1c returned 0 after 0 usecs
+[    1.403167] calling  crypto_authenc_esn_module_init+0x0/0x1c @ 8
+[    1.403198] initcall crypto_authenc_esn_module_init+0x0/0x1c returned 0 after 29 usecs
+[    2.357513] [USBH] send connect type -1
+[    2.361724] [USBH] send connect type 0
+[   11.869171] [USBH] send connect type -1
+[   14.884490] [USBH] ac_detect_expired: count = 0, connect_type = -1
+[   17.470916] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   19.901672] [USBH] ac_detect_expired: count = 1, connect_type = -1
+[   20.913787] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   24.978454] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   26.440307] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   29.917755] [USBH] ac_detect_expired: count = 2, connect_type = -1
+[   29.919128] [USBH] ac_detect_expired: count = 3, connect_type = -1
+[   49.811676] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   51.397674] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   52.981079] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   79.603698] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   81.725952] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   83.171264] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  109.420867] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  111.491119] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  113.118133] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  139.414672] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  141.485870] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  142.947357] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[  169.423461] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+=== netdump done, uptime 206.46 ===

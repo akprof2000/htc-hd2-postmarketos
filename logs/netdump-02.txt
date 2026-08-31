@@ -1,0 +1,187 @@
+=== netdump, uptime 17.54 2.23 ===
+--- rfkill ---
+0: bcm4329: Bluetooth
+	Soft blocked: yes
+	Hard blocked: no
+1: phy0: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+2: brcmfmac-wifi: Wireless LAN
+	Soft blocked: no
+	Hard blocked: no
+--- nmcli dev ---
+wlan0:wifi:connecting (configuring):home
+lo:loopback:connected (externally):lo
+dummy0:dummy:unmanaged:
+ifb0:ifb:unmanaged:
+ifb1:ifb:unmanaged:
+sit0:iptunnel:unmanaged:
+--- nmcli con ---
+home:8f2a1c40-3b7e-4d21-9c55-6e0a7b1d4f83:802-11-wireless:wlan0
+lo:d115013d-401a-4996-91c1-c35e0e34ff5e:loopback:lo
+--- ip link ---
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+dummy0           DOWN           1e:5e:a0:55:b3:7b <BROADCAST,NOARP> 
+ifb0             DOWN           da:a2:8b:52:94:84 <BROADCAST,NOARP> 
+ifb1             DOWN           ba:c4:2a:38:4f:af <BROADCAST,NOARP> 
+rmnet0           DOWN           fe:7d:83:53:9f:aa <BROADCAST,MULTICAST> 
+rmnet1           DOWN           7a:e0:10:8b:f7:ac <BROADCAST,MULTICAST> 
+rmnet2           DOWN           4a:a1:e1:a5:90:87 <BROADCAST,MULTICAST> 
+rmnet3           DOWN           ce:e6:a6:7a:72:dd <BROADCAST,MULTICAST> 
+rmnet4           DOWN           46:e8:6e:2c:d8:73 <BROADCAST,MULTICAST> 
+rmnet5           DOWN           ae:b0:95:fa:cc:e4 <BROADCAST,MULTICAST> 
+rmnet6           DOWN           7a:29:39:bb:47:8b <BROADCAST,MULTICAST> 
+rmnet7           DOWN           3a:1e:f8:5c:c1:20 <BROADCAST,MULTICAST> 
+sit0             DOWN           0.0.0.0 <NOARP> 
+ip6tnl0          DOWN           :: <NOARP> 
+wlan0            DORMANT        7c:61:93:37:3c:26 <NO-CARRIER,BROADCAST,MULTICAST,UP,LOWER_UP> 
+--- ip addr ---
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+dummy0           DOWN           
+ifb0             DOWN           
+ifb1             DOWN           
+rmnet0           DOWN           
+rmnet1           DOWN           
+rmnet2           DOWN           
+rmnet3           DOWN           
+rmnet4           DOWN           
+rmnet5           DOWN           
+rmnet6           DOWN           
+rmnet7           DOWN           
+sit0             DOWN           
+ip6tnl0          DOWN           
+wlan0            DORMANT        
+--- ip route ---
+--- wpa_supplicant ---
+2204 /sbin/wpa_supplicant
+--- NetworkManager ---
+2227 /usr/sbin/NetworkManager
+--- dropbear ---
+2285 /usr/sbin/dropbear
+--- видимые сети ---
+IN-USE  BSSID              SSID              MODE   CHAN  RATE         SIGNAL  BARS  SECURITY  
+        A0:F3:C1:8F:38:51  TP-LINK_8F3851    Infra  11    135 Mbit/s   92      ▂▄▆█  WPA2      
+        74:AC:B9:64:B5:85  ubnt-wifi         Infra  6     195 Mbit/s   85      ▂▄▆█  WPA2 WPA3 
+        CC:D8:43:B9:A2:26  Keenetic-Alf      Infra  1     270 Mbit/s   65      ▂▄▆_  WPA2 WPA3 
+        CC:2D:21:71:B5:02  TP-LINK_Alf_5GHz  Infra  2     270 Mbit/s   55      ▂▄__  WPA2      
+        B0:BE:76:C2:46:C6  dlink_wifi        Infra  3     270 Mbit/s   44      ▂▄__  WPA2      
+        3C:6A:D2:07:CA:A7  TP52              Infra  8     1170 Mbit/s  39      ▂▄__  WPA2      
+        5E:6A:D2:07:CA:A7  --                Infra  8     1170 Mbit/s  37      ▂▄__  WPA2      
+        08:D5:9D:86:9E:E6  AKADO-9EE0        Infra  1     270 Mbit/s   29      ▂___  WPA2      
+        4C:5E:0C:70:BC:19  Trend_GRB         Infra  6     270 Mbit/s   27      ▂___  WPA1 WPA2 
+        44:13:D0:B9:8A:7B  MGTS_GPON_FFA4    Infra  9     130 Mbit/s   25      ▂___  WPA2      
+        B4:E5:4C:79:49:07  RT-WiFi-4906      Infra  10    270 Mbit/s   22      ▂___  WPA1 WPA2 
+        60:31:97:EB:11:4C  Keenetic-2435     Infra  8     270 Mbit/s   20      ▂___  WPA2      
+        08:5A:11:FD:E0:B4  King              Infra  3     270 Mbit/s   19      ▂___  WPA2 WPA3 
+        94:4A:0C:CE:A9:EB  MGTS_GPON_8847    Infra  1     130 Mbit/s   15      ▂___  WPA1 WPA2 
+--- пробую поднять профиль home ---
+Error: Connection activation failed: The Wi-Fi network could not be found
+--- после активации: ip addr ---
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+dummy0           DOWN           
+ifb0             DOWN           
+ifb1             DOWN           
+rmnet0           DOWN           
+rmnet1           DOWN           
+rmnet2           DOWN           
+rmnet3           DOWN           
+rmnet4           DOWN           
+rmnet5           DOWN           
+rmnet6           DOWN           
+rmnet7           DOWN           
+sit0             DOWN           
+ip6tnl0          DOWN           
+wlan0            DORMANT        
+--- после активации: ip route ---
+--- nmcli dev ---
+wlan0:wifi:connecting (configuring):home
+lo:loopback:connected (externally):lo
+dummy0:dummy:unmanaged:
+ifb0:ifb:unmanaged:
+ifb1:ifb:unmanaged:
+sit0:iptunnel:unmanaged:
+--- OpenRC: что запущено ---
+Runlevel: shutdown
+ killprocs                                                         [  stopped  ]
+ savecache                                                         [  stopped  ]
+ mount-ro                                                          [  stopped  ]
+Runlevel: nonetwork
+Runlevel: default
+ swapfile                                                          [  started  ]
+ postmarketos-zram-swap                                            [  stopped  ]
+ haveged                                                           [  started  ]
+ cgroups                                                           [  started  ]
+ udev-postmount                                                    [  started  ]
+ dbus                                                              [  started  ]
+ wpa_supplicant                                        [  started 00:01:46 (0) ]
+ nftables                                                          [  stopped  ]
+ networkmanager                                        [  started 00:01:46 (0) ]
+ chronyd                                                           [  started  ]
+ sleep-inhibitor                                       [  started 00:01:43 (0) ]
+ dropbear                                                          [  started  ]
+ rfkill                                                            [  started  ]
+ routewrangler                                         [  started 00:01:44 (0) ]
+Runlevel: sysinit
+ devfs                                                             [  started  ]
+ udev                                                              [  started  ]
+ dmesg                                                             [  started  ]
+ udev-trigger                                                      [  started  ]
+ udev-settle                                                       [  started  ]
+Runlevel: boot
+ modules                                                           [  started  ]
+ hwclock                                                           [  started  ]
+ hostname                                                          [  started  ]
+ sysctl                                                            [  started  ]
+ tmpfs                                                             [  started  ]
+ bootmisc                                                          [  started  ]
+ logbookd                                                          [  started  ]
+ msm-fb-refresher                                      [  started 00:01:48 (0) ]
+Dynamic Runlevel: hotplugged
+Dynamic Runlevel: needed/wanted
+ sysfs                                                             [  started  ]
+ fsck                                                              [  started  ]
+ root                                                              [  started  ]
+ localmount                                                        [  started  ]
+Dynamic Runlevel: manual
+--- хвост dmesg ---
+[   94.749084] Dongle Host Driver, version 5.90.195.114
+[   94.749084] Compiled in drivers/net/wireless/bcmdhd on Aug 29 2026 at 17:31:25
+[   94.749114] wl_android_wifi_on in
+[   94.749145] wifi_set_power = 1
+[   94.749145] htcleo_wifi_power: 1
+[   95.164398] =========== WLAN going back to live  ========
+[   95.164428] sdio_reset_comm():
+[   95.176635] F1 signature read @0x18000000=0x9934329
+[   95.179351] DHD: dongle ram size is set to 294912(orig 294912)
+[   95.223999] dhdsdio_write_vars: Download, Upload and compare of NVRAM succeeded.
+[   95.300659] Firmware up: op_mode=1, Broadcom Dongle Host Driver mac=7c:61:93:37:3c:26
+[   95.306976] Firmware version = wl0: May 25 2012 17:57:45 version 4.218.248.44
+[   95.307861] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   95.434631] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   95.434661] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[   96.146911] wl_android_wifi_off in
+[   96.147644] htcleo_wifi_power: 0
+[   96.674987] =========== WLAN placed in RESET ========
+[   96.782653] wl_android_wifi_on in
+[   96.782684] htcleo_wifi_power: 1
+[   97.245239] =========== WLAN going back to live  ========
+[   97.245269] sdio_reset_comm():
+[   97.387786] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   97.515136] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   97.515136] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[   97.669464] wl_android_wifi_off in
+[   97.671691] htcleo_wifi_power: 0
+[   98.173889] =========== WLAN placed in RESET ========
+[   98.294464] wl_android_wifi_on in
+[   98.294494] htcleo_wifi_power: 1
+[   98.711547] =========== WLAN going back to live  ========
+[   98.711578] sdio_reset_comm():
+[   98.853759] CFGP2P-ERROR) wl_cfgp2p_supported : wl p2p error -23
+[   98.982818] CFG80211-ERROR) wl_construct_reginfo : get chanspecs failed with -23
+[   98.982879] CFG80211-ERROR) wl_update_wiphybands : wl_construct_reginfo() fails err=-23
+[  101.962066] call alarm, type 2, func ds2746_battery_alarm+0x0/0x44, 121915392137 (s 101915392137)
+[  101.965667] [BATT] V=3882(637) I=-264(fffffd64) C=1165.0/1230(1073) id=4(94) T=280(116) KADC=752
+[  101.965728] [BATT] voltage stable
+[  101.965789] batt: ds2784_notify: 1 95 at 101936052459 (1970-01-01 00:01:41.934984401 UTC)
+[  101.966003] batt: batt:power_supply_changed: battery at 101936266083 (1970-01-01 00:01:41.935198025 UTC)
+=== netdump done, uptime 119.73 77.89 ===

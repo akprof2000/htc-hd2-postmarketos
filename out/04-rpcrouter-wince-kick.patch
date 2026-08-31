@@ -1,0 +1,30 @@
+--- a/arch/arm/mach-msm/smd_rpcrouter.c
++++ b/arch/arm/mach-msm/smd_rpcrouter.c
+@@ -2364,6 +2364,27 @@
+ 
+ 	xprt->priv = xprt_info;
+ 
++#if defined(CONFIG_MACH_HTCLEO)
++	/* WinCE boot (HaRET): reset the modem router session left by WinMo. */
++	if (strcmp(xprt->name, "rpcrouter_loopback_xprt") &&
++	    !htcleo_is_nand_boot()) {
++		union rr_control_msg kick;
++
++		printk(KERN_ERR "[RRKICK] start on %s", xprt->name);
++		xprt_info->remote_pid = 0;
++		memset(&kick, 0, sizeof(kick));
++		kick.cmd = RPCROUTER_CTRL_CMD_BYE;
++		rpcrouter_send_control_msg(xprt_info, &kick);
++		msleep(50);
++		kick.cmd = RPCROUTER_CTRL_CMD_HELLO;
++		rpcrouter_send_control_msg(xprt_info, &kick);
++		msleep(50);
++		process_control_msg(xprt_info, &kick, sizeof(kick));
++		msleep(100);
++		printk(KERN_ERR "[RRKICK] done");
++	}
++#endif
++
+ 	return 0;
+ }
+ 

@@ -1,0 +1,33 @@
+#!/bin/sh
+# GUI HTC HD2: X на fbdev + IceWM (лёгкий: WM+панель+меню в одном процессе).
+# - PIXMAN_DISABLE=arm-neon: ядро 3.0 не сохраняет NEON-контекст (SIGILL);
+# - xfce4-session/xfwm4/xfce4-panel не используем: тяжёлые и капризные;
+# - якорь dbus-сессии - вечный sleep: падение любого приложения не гасит шину;
+# - каждый компонент в цикле перезапуска, коды выхода в /var/log/ui.log.
+exec 9>/var/log/uistart.trace
+set -x 2>&9
+(
+	export PIXMAN_DISABLE=arm-neon
+	# msmfb после перезагрузок может остаться в 16bpp - X тогда уродлив
+	# после убитого X остаются замки - новый X с ними не стартует
+	rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
+	busybox fbset -depth 32 2>/dev/null || fbset -depth 32 2>/dev/null
+	setsid sh -c 'PIXMAN_DISABLE=arm-neon exec /usr/libexec/Xorg :0 vt1' </dev/null >/var/log/x.log 2>&1 &
+	i=0
+	while [ $i -lt 30 ]; do i=$((i+1)); [ -S /tmp/.X11-unix/X0 ] && break; sleep 1; done
+	export DISPLAY=:0
+	setsid dbus-run-session -- sh -c '
+		respawn() {
+			while :; do
+				"$1" >/dev/null 2>&1
+				echo "$(date +%H:%M:%S) $1 вышел (код $?), перезапуск"
+				sleep 3
+			done
+		}
+		respawn icewm &
+		sleep 3
+		respawn /usr/local/bin/term-max &
+		exec sleep 2147483647
+	' </dev/null >/var/log/ui.log 2>&1 &
+) &
+exit 0

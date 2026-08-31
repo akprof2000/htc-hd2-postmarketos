@@ -1,0 +1,86 @@
+#!/bin/sh
+# Сеть и SSH на HTC HD2 в pmOS.
+#
+# ГЛАВНЫЙ УРОК: wpa_cli на этой системе не может достучаться до управляющего
+# сокета supplicant - даже до запущенного нами же. Все решения по его молчанию
+# были ошибочными: скрипт убивал supplicant посреди УДАЧНОЙ ассоциации (80 с
+# связи в 19:22 оборвал наш же killall) и никогда не запускал DHCP, потому что
+# не видел COMPLETED. Состояние связи берём только из `iw dev wlan0 link` -
+# это прямой запрос к ядру, без сокетов.
+(
+	echo "=== старт, uptime $(cut -d' ' -f1 /proc/uptime) ==="
+	killall NetworkManager 2>/dev/null
+
+	notconn=0
+	i=0
+	while :; do
+		i=$((i + 1))
+
+		ip link set wlan0 up 2>/dev/null
+		iw dev wlan0 set power_save off 2>/dev/null
+
+		# состояние из ядра: Connected / Not connected / интерфейса нет
+		LNK=$(iw dev wlan0 link 2>/dev/null | head -1)
+
+		case "$LNK" in
+		Connected*)
+			notconn=0
+			# есть связь - добываем адрес, если его ещё нет
+			if ! ip -br addr show wlan0 2>/dev/null | grep -q "192\.168\."; then
+				udhcpc -i wlan0 -n -q -t 3 >/dev/null 2>&1
+			fi
+			;;
+		*)
+			notconn=$((notconn + 1))
+			;;
+		esac
+
+		# ДВА supplicant - главный саботажник дня: кто-то поднимает второй
+		# /sbin/wpa_supplicant даже без службы в автозапуске. Двоих не терпим.
+		if [ "$(pgrep wpa_supplicant 2>/dev/null | wc -l)" -gt 1 ]; then
+			echo "$(date '+%H:%M:%S') два supplicant, убиваю всех: $(pgrep -a wpa_supplicant | tr '
+' ';')"
+			killall wpa_supplicant 2>/dev/null
+			sleep 2
+		fi
+
+		# supplicant запускаем, если его нет вообще
+		if ! pgrep wpa_supplicant >/dev/null 2>&1 && ip link show wlan0 >/dev/null 2>&1; then
+			echo "$(date '+%H:%M:%S') запускаю wpa_supplicant"
+			mkdir -p /var/run/wpa_supplicant
+			wpa_supplicant -B -Dnl80211 -i wlan0 \
+				-c /etc/wpa_supplicant/wpa_supplicant.conf >/dev/null 2>&1
+			sleep 3
+		fi
+
+		# перезапуск ТОЛЬКО если ядро 3 минуты подряд говорит "нет связи"
+		if [ $notconn -ge 36 ]; then
+			echo "$(date '+%H:%M:%S') 3 мин без связи ($LNK), перезапуск supplicant"
+			echo "  процессы: $(pgrep -a wpa_supplicant | tr '\n' ';')"
+			killall wpa_supplicant 2>/dev/null
+			sleep 2
+			notconn=0
+		fi
+
+		if ip -br addr show wlan0 2>/dev/null | grep -q "192\.168\." \
+		   && ! pgrep dropbear >/dev/null 2>&1; then
+			/usr/sbin/dropbear -R >/dev/null 2>&1
+			sleep 2
+			pgrep dropbear >/dev/null 2>&1 \
+				&& echo "$(date '+%H:%M:%S') SSH поднят, $(ip -br addr show wlan0 | tr -s ' ')" \
+				|| echo "$(date '+%H:%M:%S') dropbear не стартовал"
+		fi
+
+		if [ $((i % 12)) -eq 0 ]; then
+			echo "$(date '+%H:%M:%S') круг $i: ${LNK:-нет wlan0} | $(ip -br addr show wlan0 2>/dev/null | tr -s ' ') | ssh=$(pgrep dropbear >/dev/null 2>&1 && echo да || echo нет)"
+			sync
+			if [ "$(wc -c < /var/log/netdump.txt 2>/dev/null || echo 0)" -gt 200000 ]; then
+				tail -200 /var/log/netdump.txt > /var/log/netdump.new
+				mv /var/log/netdump.new /var/log/netdump.txt
+			fi
+		fi
+
+		sleep 5
+	done
+) > /var/log/netdump.txt 2>&1 &
+exit 0

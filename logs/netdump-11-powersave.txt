@@ -1,0 +1,38 @@
+=== старт, uptime 14.95 ===
+wlan0 появился на срезе 1
+--- энергосбережение было: Power save: on ---
+--- стало: Power save: off ---
+срез 1: wpa_state=SCANNING | wlan0:unavailable | wlan0 DORMANT 
+срез 2: wpa_state=INTERFACE_DISABLED | wlan0:connecting (configuring) | wlan0 DORMANT fe80::7e61:93ff:fe37:3c26/64 
+срез 3: wpa_state=COMPLETED | wlan0:connecting (configuring) | wlan0 UP fe80::7e61:93ff:fe37:3c26/64 
+срез 4: wpa_state=INTERFACE_DISABLED | wlan0:disconnected | wlan0 DORMANT 
+срез 5: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 6: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 7: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 8: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 9: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 10: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 11: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 12: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 13: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 14: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 15: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 16: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 17: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 18: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 19: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 20: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 21: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 22: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 23: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 24: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 25: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 26: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 27: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 28: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 29: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+срез 30: wpa_state=SCANNING | wlan0:disconnected | wlan0 DORMANT 
+--- итог ---
+wlan0            DORMANT        
+Not connected.
+=== готово, uptime 183.49 ===

@@ -1,0 +1,17 @@
+--- a/drivers/video/msm/msm_fb.c
++++ b/drivers/video/msm/msm_fb.c
+@@ -572,11 +572,12 @@
+ 
+ 	/* we only support RGB ordering for now */
+ 	if (var->bits_per_pixel == 32 || var->bits_per_pixel == 24) {
+-		var->red.offset = 0;
++		/* HD2 panel is physically BGR: swap red/blue vs upstream RGB */
++		var->red.offset = 16;
+ 		var->red.length = 8;
+ 		var->green.offset = 8;
+ 		var->green.length = 8;
+-		var->blue.offset = 16;
++		var->blue.offset = 0;
+ 		var->blue.length = 8;
+ 	} else if (var->bits_per_pixel == 16) {
+ 		var->red.offset = 11;

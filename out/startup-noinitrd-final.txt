@@ -1,0 +1,6 @@
+set mtype 2524
+set ramaddr 0x11800000
+set ramsize 0x1e400000
+set KERNEL zImage
+set cmdline "root=/dev/mmcblk0p3 rootwait rw lpj=499435 ignore_loglevel"
+boot

@@ -1,0 +1,2 @@
+dev:    size   erasesize  name
+mtd0: 20000000 00020000 "msm_nand"

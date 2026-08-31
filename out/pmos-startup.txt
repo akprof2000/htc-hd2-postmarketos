@@ -1,0 +1,14 @@
+set mtype 2524
+set ramaddr 0x11800000
+set ramsize 0x1e400000
+set initrd_offset 0x01800000
+set KERNEL zImage
+set initrd initrd.gz
+set cmdline "no_console_suspend=1 wire.search_count=5 console=tty0 PMOS_NO_OUTPUT_REDIRECT"
+boot
+
+# mtype/ramaddr/ramsize взяты 1:1 из рабочего D:\ICS\STARTUP.TXT этого аппарата.
+# initrd_offset поднят с 0x00a00000 до 0x01000000 (= deviceinfo_flash_offset_ramdisk
+#   в device-htc-leo): initramfs pmOS крупнее андроидного и на 10 МБ может налезть
+#   на распакованное ядро. Если не грузится - пробуйте 0x00a00000, потом 0x01800000.
+# PMOS_NO_OUTPUT_REDIRECT - вывод initramfs на экран вместо лога, на первых загрузках нужен.
