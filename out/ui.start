@@ -28,7 +28,6 @@ set -x 2>&9
 		}
 		respawn icewm &
 		sleep 3
-		/usr/local/bin/term-max &
 		respawn /usr/local/bin/home &
 		respawn /usr/local/bin/keysd &
 		setsid /usr/local/bin/xwatchd </dev/null >/dev/null 2>&1 &

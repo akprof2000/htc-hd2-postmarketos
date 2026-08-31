@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Индикатор громкости HTC HD2: полоска поверх экрана на пару секунд.
+
+Уровень читает из /run/phone/vol (пишет keysd); пока уровень меняется —
+висит и обновляется, затем исчезает.
+"""
+import fcntl
+import time
+import tkinter as tk
+
+VOL = "/run/phone/vol"
+BG, FG, BAR, DIM = "#101828", "#e8eef5", "#0a9ebd", "#2a3a50"
+
+
+def level():
+    try:
+        with open(VOL) as f:
+            return max(0, min(100, int(f.read().strip())))
+    except (OSError, ValueError):
+        return 50
+
+
+def main():
+    root = tk.Tk(className="volosd")
+    root.overrideredirect(True)          # без рамки и без участия WM
+    root.attributes("-topmost", True)
+    root.configure(bg=BG)
+    root.geometry("440x80+20+330")
+
+    lbl = tk.Label(root, text="", font=("DejaVu Sans", 13, "bold"),
+                   bg=BG, fg=FG)
+    lbl.pack(pady=(10, 2))
+    row = tk.Frame(root, bg=BG)
+    row.pack()
+    cells = []
+    for i in range(10):
+        c = tk.Frame(row, bg=DIM, width=36, height=18)
+        c.pack(side="left", padx=2)
+        cells.append(c)
+
+    state = {"last": -1, "quiet": 0}
+
+    def tick():
+        v = level()
+        if v != state["last"]:
+            state["last"], state["quiet"] = v, 0
+            lbl.config(text="Громкость  %d%%" % v)
+            for i, c in enumerate(cells):
+                c.config(bg=BAR if v > i * 10 else DIM)
+        else:
+            state["quiet"] += 1
+            if state["quiet"] > 8:       # ~2 с без изменений — уходим
+                root.destroy()
+                return
+        root.after(250, tick)
+
+    tick()
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.volosd.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)             # уже висит — он сам обновится
+    main()

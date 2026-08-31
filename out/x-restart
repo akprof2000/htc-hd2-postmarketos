@@ -1,0 +1,21 @@
+#!/bin/sh
+# Перезапуск графики. Ключевое: дождаться реальной смерти X перед новым
+# запуском - иначе новый процесс не стартует, а старый живёт дальше.
+pkill -9 -f dbus-run-session 2>/dev/null
+pkill -9 icewm 2>/dev/null
+pkill -9 -f xfce4-terminal 2>/dev/null
+kill -9 $(pgrep Xorg) 2>/dev/null
+i=0
+while pgrep Xorg >/dev/null 2>&1 && [ $i -lt 20 ]; do i=$((i+1)); sleep 1; done
+busybox fbset -depth 32 2>/dev/null
+rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
+export PIXMAN_DISABLE=arm-neon
+setsid sh -c 'PIXMAN_DISABLE=arm-neon exec /usr/libexec/Xorg :0 vt1' </dev/null >/var/log/x.log 2>&1 &
+i=0
+while [ ! -S /tmp/.X11-unix/X0 ] && [ $i -lt 30 ]; do i=$((i+1)); sleep 1; done
+export DISPLAY=:0
+setsid icewm </dev/null >/dev/null 2>&1 &
+sleep 3
+sleep 3
+echo "X=$(pgrep -c Xorg) icewm=$(pgrep -c icewm) term=$(pgrep -c xfce4-termina)"
+grep -i 'DPI set' /var/log/Xorg.0.log | tail -1

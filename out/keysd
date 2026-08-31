@@ -19,7 +19,10 @@ BL = "/sys/class/leds/lcd-backlight/brightness"
 RUN = "/run/phone"
 
 KEY_SEND, KEY_HOME, KEY_MENU, KEY_END, KEY_BACK = 231, 102, 139, 107, 158
+KEY_VOLDOWN, KEY_VOLUP = 114, 115
 LONG = 2.5
+BTN_BL = "/sys/class/leds/button-backlight/brightness"
+VOLFILE = os.path.join(RUN, "vol")
 
 
 def state():
@@ -54,6 +57,47 @@ def screen_toggle():
 
 def raise_win(title):
     sh("DISPLAY=:0 wmctrl -a '%s'" % title)
+
+
+_bl_timer = [None]
+
+
+def flash_buttons():
+    """Подсветка аппаратных кнопок: загорается при нажатии, гаснет через 3 с."""
+    try:
+        with open(BTN_BL, "w") as f:
+            f.write("255")
+    except OSError:
+        return
+    if _bl_timer[0]:
+        _bl_timer[0].cancel()
+    def off():
+        try:
+            with open(BTN_BL, "w") as f:
+                f.write("0")
+        except OSError:
+            pass
+    _bl_timer[0] = threading.Timer(3.0, off)
+    _bl_timer[0].daemon = True
+    _bl_timer[0].start()
+
+
+def volume_step(delta):
+    """Качелька громкости: шаг 10%, OSD и блик на новой громкости."""
+    try:
+        cur = int(open(VOLFILE).read().strip())
+    except (OSError, ValueError):
+        cur = 70
+    vol = max(0, min(100, cur + delta))
+    try:
+        with open(VOLFILE, "w") as f:
+            f.write(str(vol))
+    except OSError:
+        pass
+    at("@vol %d" % vol)                  # громкость тракта (и в разговоре)
+    sh("DISPLAY=:0 /usr/local/bin/volosd")
+    if state() == "idle" and vol > 0:    # блик слышен как раз на новом уровне
+        sh("/usr/local/bin/beep s %d" % vol)
 
 
 # классы окон, где нужен ввод текста — там клавиатура показывается сама
@@ -106,9 +150,14 @@ def main():
             continue
 
         if val == 1:                                  # нажатие
+            flash_buttons()
             pressed[code] = time.monotonic()
             st = state()
-            if code == KEY_SEND:
+            if code == KEY_VOLUP:
+                volume_step(+10)
+            elif code == KEY_VOLDOWN:
+                volume_step(-10)
+            elif code == KEY_SEND:
                 if st == "ringing":
                     at("ATA")
                 else:
