@@ -117,6 +117,8 @@ class Audio:
         self.on = False
 
     def start(self):
+        if self.on:
+            return
         h = "h" if read_state("route") == "headset" else ""
         subprocess.run(["/usr/local/bin/voice", "on"] + ([h] if h else []),
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -203,11 +205,15 @@ class Calls:
             self.direction, self.answered = "out", False
             self.appeared = time.time()
 
+        # голос включаем уже на наборе: гудки «вызов идёт» сеть передаёт
+        # по голосовому каналу до ответа абонента
+        if st == "dialing" and self.direction == "out":
+            self.audio.start()
         if st == "active":
             self.answered = True
             self.started = time.time()
             self.audio.start()
-        elif old == "active":
+        elif st == "idle":
             self.audio.stop()
 
         if st == "idle" and old != "idle":
