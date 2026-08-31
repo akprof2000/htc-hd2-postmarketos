@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+description="Заставка на фреймбуфере при загрузке"
+depend() {
+	need localmount
+}
+start() {
+	ebegin "Заставка"
+	busybox fbset -depth 32 2>/dev/null
+	zcat /usr/local/share/splash.raw.gz > /dev/fb0 2>/dev/null
+	eend 0
+}
