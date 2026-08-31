@@ -9,6 +9,7 @@
 """
 import os
 import re
+import subprocess
 import time
 import tkinter as tk
 from tkinter import scrolledtext
@@ -22,6 +23,19 @@ FG     = "#e8eef5"
 DIM    = "#7c8794"
 ACCENT = "#2e7d32"
 FIELD  = "#1c2530"
+
+
+def keyboard(show=True):
+    """Экранная клавиатура. Без неё в поля не набрать: физической нет."""
+    if show:
+        if subprocess.run(["pgrep", "-f", "matchbox-keyboard"],
+                          stdout=subprocess.DEVNULL).returncode != 0:
+            subprocess.Popen(["setsid", "matchbox-keyboard"],
+                             stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["pkill", "-f", "matchbox-keyboard"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def send_at(at):
@@ -61,7 +75,7 @@ class Sms:
         self.root = root
         root.title("Сообщения")
         root.configure(bg=BG)
-        root.geometry("480x770+0+0")
+        root.geometry("456x500+0+0")
 
         tk.Label(root, text="Кому (номер)", font=("DejaVu Sans", 11),
                  bg=BG, fg=DIM, anchor="w", padx=10).pack(fill="x", pady=(8, 0))
@@ -85,7 +99,11 @@ class Sms:
         tk.Button(bar, text="Обновить", font=("DejaVu Sans", 14),
                   bg=FIELD, fg=FG, relief="flat", bd=0, height=2,
                   command=self.refresh).pack(side="left", expand=True,
-                                             fill="both", padx=(4, 0))
+                                             fill="both", padx=4)
+        tk.Button(bar, text="Клав.", font=("DejaVu Sans", 14),
+                  bg=FIELD, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.toggle_kbd).pack(side="left", expand=True,
+                                                fill="both", padx=(4, 0))
 
         self.status = tk.Label(root, text="", font=("DejaVu Sans", 10),
                                bg=BG, fg=DIM, anchor="w", padx=10)
@@ -98,7 +116,21 @@ class Sms:
                                               wrap="word")
         self.list.pack(expand=True, fill="both", padx=10, pady=(4, 10))
 
+        self.kbd = True
+        keyboard(True)
+        self.to.focus_set()
+        self.root.after(300, self.fix_place)
+        self.root.after(1200, self.fix_place)
         self.refresh()
+
+    def fix_place(self):
+        """IceWM ставит окно со сдвигом — возвращаем в левый верхний угол,
+        иначе правый край уезжает за экран."""
+        self.root.geometry("456x500+0+0")
+
+    def toggle_kbd(self):
+        self.kbd = not self.kbd
+        keyboard(self.kbd)
 
     def send(self):
         num = self.to.get().strip()

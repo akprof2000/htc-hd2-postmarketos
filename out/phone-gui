@@ -46,7 +46,7 @@ class Phone:
 
         root.title("Телефон")
         root.configure(bg=BG)
-        root.geometry("480x770+0+0")
+        root.geometry("456x736+0+0")
 
         # ── строка состояния ──────────────────────────────────────────
         self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
@@ -98,7 +98,14 @@ class Phone:
                                  command=self.backspace)
         self.btn_del.pack(fill="x", pady=(0, 6))
 
+        self.root.after(300, self.fix_place)
+        self.root.after(1200, self.fix_place)
         self.tick()
+
+    def fix_place(self):
+        """IceWM ставит окно со сдвигом — возвращаем в левый верхний угол,
+        иначе правый край уезжает за экран."""
+        self.root.geometry("456x736+0+0")
 
     # ── действия ──────────────────────────────────────────────────────
     def press(self, d):
