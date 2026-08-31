@@ -1,0 +1,15 @@
+--- a/arch/arm/mach-msm/qdsp6_1550/q6audio.c
++++ b/arch/arm/mach-msm/qdsp6_1550/q6audio.c
+@@ -365,8 +365,10 @@
+ {
+     AUDIO_INFO("%s\n", __func__);
+     adie_refcount--;
+-    if (adie_refcount == 0)
+-        adie_close(adie);
++    /* НЕ закрываем кодек: после adie_close() повторный
++     * adie_open() не восстанавливает аналоговый тракт, и
++     * звук проходит ровно один раз за сеанс. Держим
++     * открытым — расход ничтожен. */
+     return 0;
+ }
+ 

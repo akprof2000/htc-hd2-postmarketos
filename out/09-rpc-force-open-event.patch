@@ -1,0 +1,19 @@
+--- a/arch/arm/mach-msm/rpcrouter_smd_xprt.c
++++ b/arch/arm/mach-msm/rpcrouter_smd_xprt.c
+@@ -300,6 +300,16 @@
+ 
+ 	smd_disable_read_intr(smd_remote_xprt.channel);
+ 
++	/* Загрузка через HaRET: канал уже открыт Windows Mobile, перехода
++	 * состояния нет, значит SMD_EVENT_OPEN не придёт никогда. Без него
++	 * маршрутизатор не регистрирует транспорт и RPC не работает вовсе.
++	 * Проверяем готовность канала и досылаем событие вручную. */
++	if (smd_write_avail(smd_remote_xprt.channel) > 0) {
++		pr_info("rpcrouter: канал уже открыт, досылаем OPEN");
++		msm_rpcrouter_xprt_notify(&smd_remote_xprt.xprt,
++					  RPCROUTER_XPRT_EVENT_OPEN);
++	}
++
+ 	return 0;
+ }
+ 
