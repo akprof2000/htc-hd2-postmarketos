@@ -6,9 +6,9 @@ if pgrep 'svkb[d]' >/dev/null 2>&1; then
     pkill 'svkb[d]'
     echo 'клавиатура скрыта'
 else
-    setsid svkbd-mobile-intl -d -O -fn 'DejaVu Sans:size=11' -g 480x260+0+540 </dev/null >/dev/null 2>&1 &
+    setsid svkbd-mobile-intl -d -O -fn 'DejaVu Sans:size=11' -g 480x260+0+513 </dev/null >/dev/null 2>&1 &
     sleep 2
-    wmctrl -r svkbd -e 0,0,540,480,260
+    wmctrl -r svkbd -e 0,0,513,480,260
     wmctrl -r svkbd -b add,above
     echo 'клавиатура показана'
 fi

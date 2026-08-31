@@ -6,5 +6,5 @@ ColorActiveTitleBar="rgb:38/58/98"
 ColorNormalTitleBarText="rgb:C0/C8/E0"
 ColorActiveTitleBarText="rgb:FF/FF/FF"
 GrabRootWindow=0
-ShowTaskBar=0
+ShowTaskBar=1
 RootMenuButton=1
