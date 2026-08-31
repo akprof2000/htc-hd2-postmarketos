@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""О системе: батарея, память, сеть, аптайм — живые данные."""
+import fcntl
+import os
+import subprocess
+import time
+import tkinter as tk
+
+BG, FG, DIM, KEY = "#101828", "#e8eef5", "#7c8794", "#1c2a40"
+
+
+def read(path, default="?"):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def collect():
+    rows = []
+    rows.append(("Модель", "HTC HD2 (Leo) · postmarketOS"))
+    rows.append(("Ядро", os.uname().release))
+    up = float(read("/proc/uptime", "0 0").split()[0])
+    rows.append(("Работает", "%d ч %02d мин" % (up // 3600, up % 3600 // 60)))
+    cap = read("/sys/class/power_supply/battery/capacity")
+    st = {"Charging": "заряжается", "Full": "заряжена",
+          "Discharging": "разряжается"}.get(
+        read("/sys/class/power_supply/battery/status"), "")
+    rows.append(("Батарея", "%s%% %s" % (cap, st)))
+    mem = {}
+    for ln in open("/proc/meminfo"):
+        k, v = ln.split(":", 1)
+        mem[k] = int(v.split()[0])
+    free = (mem["MemFree"] + mem.get("Buffers", 0) +
+            mem.get("Cached", 0)) // 1024
+    rows.append(("Память", "свободно %d из %d МБ"
+                 % (free, mem["MemTotal"] // 1024)))
+    try:
+        df = subprocess.run(["df", "-h", "/"], capture_output=True,
+                            text=True).stdout.splitlines()[-1].split()
+        rows.append(("Диск", "занято %s из %s" % (df[2], df[1])))
+    except (OSError, IndexError):
+        pass
+    net = read("/run/phone/net", "")
+    dbm = read("/run/phone/dbm", "")
+    if net:
+        rows.append(("Сотовая сеть", "%s · %s дБм" % (net, dbm)))
+    try:
+        ip = subprocess.run(["ip", "-4", "addr", "show", "wlan0"],
+                            capture_output=True, text=True).stdout
+        for tok in ip.split():
+            if tok.count(".") == 3 and "/" in tok:
+                rows.append(("Wi-Fi", tok.split("/")[0]))
+                break
+    except OSError:
+        pass
+    rows.append(("Время", time.strftime("%H:%M:%S · %d.%m.%Y")))
+    return rows
+
+
+def main():
+    root = tk.Tk(className="sysinfo")
+    root.title("Система")
+    root.configure(bg=BG)
+    root.geometry("480x740+0+0")
+    tk.Label(root, text="О системе", font=("DejaVu Sans", 18, "bold"),
+             bg=BG, fg=FG).pack(pady=(16, 10))
+    box = tk.Frame(root, bg=BG)
+    box.pack(expand=True, fill="both", padx=14)
+
+    def refresh():
+        for w in box.winfo_children():
+            w.destroy()
+        for k, v in collect():
+            row = tk.Frame(box, bg=KEY)
+            row.pack(fill="x", pady=3)
+            tk.Label(row, text=" " + k, font=("DejaVu Sans", 12), bg=KEY,
+                     fg=DIM, width=12, anchor="w").pack(side="left", ipady=8)
+            tk.Label(row, text=v, font=("DejaVu Sans", 12, "bold"), bg=KEY,
+                     fg=FG, anchor="w", wraplength=310,
+                     justify="left").pack(side="left", fill="x")
+        root.after(5000, refresh)
+
+    refresh()
+    root.after(300, lambda: root.geometry("480x740+0+0"))
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.sysinfo.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    main()

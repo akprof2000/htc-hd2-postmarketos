@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Проигрыватель PCM с stdin в /dev/msm_pcm_out (легаси-звук MSM).
+
+Кормить так: ffmpeg -i файл -f s16le -ac 2 -ar 44100 - | pcmplay [h]
+h — наушники, иначе динамик. Громкость берёт из /run/phone/vol.
+"""
+import fcntl
+import os
+import struct
+import sys
+
+def _iow(nr): return (1 << 30) | (4 << 16) | (ord('a') << 8) | nr
+def _ior(nr): return (2 << 30) | (4 << 16) | (ord('a') << 8) | nr
+
+AUDIO_START, AUDIO_STOP = _iow(0), _iow(1)
+AUDIO_GET_CONFIG, AUDIO_SET_CONFIG = _ior(3), _iow(4)
+AUDIO_SET_VOLUME, AUDIO_SWITCH_DEVICE = _iow(10), _iow(32)
+DEV_SPKR, DEV_HEADSET = 0x1081513, 0x107ac8a
+
+
+def vol():
+    try:
+        return max(0, min(100, int(open("/run/phone/vol").read())))
+    except (OSError, ValueError):
+        return 70
+
+
+def main():
+    headset = len(sys.argv) > 1 and sys.argv[1] == "h"
+    ctl = os.open("/dev/msm_audio_ctl", os.O_RDWR)
+    fcntl.ioctl(ctl, AUDIO_SWITCH_DEVICE, struct.pack(
+        "2I", DEV_HEADSET if headset else DEV_SPKR, 0))
+    fcntl.ioctl(ctl, AUDIO_SET_VOLUME, struct.pack("I", vol()))
+
+    fd = os.open("/dev/msm_pcm_out", os.O_RDWR)
+    cfg = bytearray(32)
+    fcntl.ioctl(fd, AUDIO_GET_CONFIG, cfg)
+    bufsz = struct.unpack_from("I", cfg)[0]
+    struct.pack_into("2I", cfg, 8, 2, 44100)
+    fcntl.ioctl(fd, AUDIO_SET_CONFIG, bytes(cfg))
+    fcntl.ioctl(fd, AUDIO_START, 0)
+
+    stdin = sys.stdin.buffer
+    try:
+        while True:
+            chunk = stdin.read(bufsz)
+            if not chunk:
+                break
+            if len(chunk) < bufsz:
+                chunk += b"\x00" * (bufsz - len(chunk))
+            os.write(fd, chunk)
+    finally:
+        fcntl.ioctl(fd, AUDIO_STOP, 0)
+        os.close(fd)
+        os.close(ctl)
+
+
+if __name__ == "__main__":
+    main()

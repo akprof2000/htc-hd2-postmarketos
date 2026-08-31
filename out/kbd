@@ -1,14 +1,11 @@
 #!/bin/sh
-# Экранная клавиатура — переключатель. svkbd шлёт нажатия активному окну
-# через XTest. IceWM игнорирует позицию из -g, поэтому окно ставит wmctrl.
+# Экранная клавиатура — переключатель. rukbd (своя, с русским) печатает в
+# активное окно через xdotool, окно фокус не забирает.
 export DISPLAY=${DISPLAY:-:0}
-if pgrep 'svkb[d]' >/dev/null 2>&1; then
-    pkill 'svkb[d]'
+if pgrep -f 'bin/rukbd' >/dev/null 2>&1; then
+    pkill -f 'bin/rukbd'
     echo 'клавиатура скрыта'
 else
-    setsid svkbd-mobile-intl -d -O -fn 'DejaVu Sans:size=11' -g 480x260+0+513 </dev/null >/dev/null 2>&1 &
-    sleep 2
-    wmctrl -r svkbd -e 0,0,513,480,260
-    wmctrl -r svkbd -b add,above
+    setsid /usr/local/bin/rukbd </dev/null >/dev/null 2>&1 &
     echo 'клавиатура показана'
 fi

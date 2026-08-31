@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Заметки HTC HD2: один большой блокнот, сохраняется сам."""
+import fcntl
+import os
+import subprocess
+import tkinter as tk
+
+FILE = "/root/notes.txt"
+BG, FG, FIELD = "#101828", "#e8eef5", "#1c2a40"
+
+
+def main():
+    root = tk.Tk(className="notes")
+    root.title("Заметки")
+    root.configure(bg=BG)
+    root.geometry("480x480+0+0")   # снизу место под клавиатуру
+
+    text = tk.Text(root, font=("DejaVu Sans", 14), bg=FIELD, fg=FG,
+                   insertbackground=FG, relief="flat", wrap="word",
+                   padx=10, pady=10)
+    text.pack(expand=True, fill="both", padx=8, pady=8)
+    try:
+        text.insert("1.0", open(FILE, encoding="utf-8").read())
+    except OSError:
+        pass
+
+    status = tk.Label(root, text="сохраняется автоматически",
+                      font=("DejaVu Sans", 10), bg=BG, fg="#7c8794")
+    status.pack(pady=(0, 6))
+
+    def save():
+        try:
+            with open(FILE, "w", encoding="utf-8") as f:
+                f.write(text.get("1.0", "end-1c"))
+        except OSError:
+            pass
+        root.after(3000, save)
+
+    subprocess.run(["/usr/local/bin/kbd"], stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL)
+    root.after(300, lambda: root.geometry("480x480+0+0"))
+    save()
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.notes.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    main()

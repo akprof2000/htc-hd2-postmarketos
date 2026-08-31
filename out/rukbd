@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Экранная клавиатура HTC HD2 с русским: ЙЦУКЕН / QWERTY / цифры.
+
+Окно override-redirect — не забирает фокус, печатает в активное окно
+через xdotool. Слои переключаются кнопкой слева внизу, Shift — регистр.
+"""
+import fcntl
+import subprocess
+import tkinter as tk
+
+BG, KEYBG, FG, ACT = "#0d1420", "#1e2c42", "#e8eef5", "#33517c"
+H = 264
+
+RU = ["йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю"]
+EN = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+NUM = ["1234567890", "-/:;()₽&@\"", ".,?!'#%+*="]
+
+
+def send_char(ch):
+    subprocess.Popen(["xdotool", "type", "--clearmodifiers", "--", ch],
+                     env={"DISPLAY": ":0", "PATH": "/usr/bin:/bin"})
+
+
+def send_key(key):
+    subprocess.Popen(["xdotool", "key", "--clearmodifiers", key],
+                     env={"DISPLAY": ":0", "PATH": "/usr/bin:/bin"})
+
+
+class Kbd:
+    def __init__(self, root):
+        self.root = root
+        self.layer = "ru"
+        self.shift = False
+        root.overrideredirect(True)      # не участвует в фокусе WM
+        root.attributes("-topmost", True)
+        root.configure(bg=BG)
+        root.geometry("480x%d+0+%d" % (H, 776 - H))
+        self.body = tk.Frame(root, bg=BG)
+        self.body.pack(expand=True, fill="both")
+        self.draw()
+
+    def rows(self):
+        base = {"ru": RU, "en": EN, "num": NUM}[self.layer]
+        if self.shift and self.layer in ("ru", "en"):
+            return [r.upper() for r in base]
+        return base
+
+    def draw(self):
+        for w in self.body.winfo_children():
+            w.destroy()
+        for r, row in enumerate(self.rows()):
+            fr = tk.Frame(self.body, bg=BG)
+            fr.pack(expand=True, fill="both")
+            if r == 2 and self.layer != "num":   # ряд с Shift и ⌫
+                self.key(fr, "⇧", self.do_shift, w=2,
+                         bg=ACT if self.shift else KEYBG)
+            for ch in row:
+                self.key(fr, ch, lambda c=ch: self.type_char(c))
+            if r == 2:
+                self.key(fr, "⌫", lambda: send_key("BackSpace"), w=2)
+
+        low = tk.Frame(self.body, bg=BG)
+        low.pack(expand=True, fill="both")
+        nxt = {"ru": "ENG", "en": "123", "num": "РУС"}[self.layer]
+        self.key(low, nxt, self.cycle, w=3)
+        self.key(low, "␣", lambda: self.type_char(" "), w=8)
+        self.key(low, "⏎", lambda: send_key("Return"), w=3)
+        self.key(low, "✕", self.root.destroy, w=2)
+
+    def key(self, parent, label, cmd, w=1, bg=None):
+        b = tk.Button(parent, text=label, font=("DejaVu Sans", 15, "bold"),
+                      bg=bg or KEYBG, fg=FG, activebackground=ACT,
+                      relief="flat", bd=0, command=cmd)
+        b.pack(side="left", expand=True, fill="both", padx=1, pady=1,
+               ipadx=2 * w)
+
+    def type_char(self, ch):
+        send_char(ch)
+        if self.shift:
+            self.shift = False
+            self.draw()
+
+    def do_shift(self):
+        self.shift = not self.shift
+        self.draw()
+
+    def cycle(self):
+        self.layer = {"ru": "en", "en": "num", "num": "ru"}[self.layer]
+        self.shift = False
+        self.draw()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.rukbd.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="rukbd")
+    Kbd(root)
+    root.mainloop()

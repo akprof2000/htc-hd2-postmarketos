@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Менеджер приложений HTC HD2: список окон, выгрузка из памяти."""
+import fcntl
+import os
+import subprocess
+import tkinter as tk
+
+BG, FG, DIM, KEY = "#101828", "#e8eef5", "#7c8794", "#1c2a40"
+KEEP = ("Домой", "Приложения")          # эти не убиваем
+
+
+def windows():
+    env = dict(os.environ, DISPLAY=":0")
+    try:
+        out = subprocess.run(["wmctrl", "-lp"], capture_output=True,
+                             text=True, env=env, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    apps = []
+    for ln in out.splitlines():
+        p = ln.split(None, 4)
+        if len(p) < 5:
+            continue
+        wid, _, pid, _, title = p
+        if title not in KEEP:
+            apps.append((wid, int(pid), title))
+    return apps
+
+
+def meminfo():
+    try:
+        d = {}
+        for ln in open("/proc/meminfo"):
+            k, v = ln.split(":", 1)
+            d[k] = int(v.split()[0])
+        free = (d.get("MemFree", 0) + d.get("Buffers", 0) +
+                d.get("Cached", 0)) // 1024
+        return "память: свободно %d МБ из %d" % (free,
+                                                 d.get("MemTotal", 0) // 1024)
+    except (OSError, ValueError):
+        return ""
+
+
+class TaskMgr:
+    def __init__(self, root):
+        self.root = root
+        root.title("Приложения")
+        root.configure(bg=BG)
+        root.geometry("480x740+0+0")
+
+        tk.Label(root, text="Приложения", font=("DejaVu Sans", 18, "bold"),
+                 bg=BG, fg=FG).pack(pady=(14, 2))
+        self.mem = tk.Label(root, text="", font=("DejaVu Sans", 11),
+                            bg=BG, fg=DIM)
+        self.mem.pack(pady=(0, 8))
+
+        self.box = tk.Frame(root, bg=BG)
+        self.box.pack(expand=True, fill="both", padx=12)
+
+        tk.Button(root, text="Обновить", font=("DejaVu Sans", 14),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.refresh).pack(fill="x", padx=12, pady=(4, 10))
+        self.refresh()
+
+    def kill(self, wid, pid):
+        env = dict(os.environ, DISPLAY=":0")
+        subprocess.run(["wmctrl", "-ic", wid], env=env)   # вежливо
+        if pid > 1:
+            self.root.after(2000, lambda: self.force(pid))
+        self.root.after(1200, self.refresh)
+
+    @staticmethod
+    def force(pid):
+        try:
+            os.kill(pid, 9)              # не закрылся — выгружаем
+        except OSError:
+            pass
+
+    def refresh(self):
+        for w in self.box.winfo_children():
+            w.destroy()
+        self.mem.config(text=meminfo())
+        apps = windows()
+        if not apps:
+            tk.Label(self.box, text="всё выгружено",
+                     font=("DejaVu Sans", 13), bg=BG, fg=DIM).pack(pady=20)
+        for wid, pid, title in apps:
+            row = tk.Frame(self.box, bg=KEY)
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=" " + title, font=("DejaVu Sans", 14),
+                     bg=KEY, fg=FG, anchor="w").pack(side="left",
+                                                     expand=True, fill="x",
+                                                     ipady=12)
+            tk.Button(row, text=" ✕ выгрузить ", font=("DejaVu Sans", 13,
+                                                       "bold"),
+                      bg="#a4262c", fg="white", relief="flat", bd=0,
+                      command=lambda w=wid, p=pid: self.kill(w, p)
+                      ).pack(side="right", fill="y")
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.taskmgr.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="taskmgr")
+    TaskMgr(root)
+    root.mainloop()

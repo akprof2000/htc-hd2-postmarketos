@@ -101,7 +101,7 @@ def volume_step(delta):
 
 
 # классы окон, где нужен ввод текста — там клавиатура показывается сама
-TYPING = ("xfce4-terminal", "netsurf", "phone-sms", "sms")
+TYPING = ("xfce4-terminal", "phone-sms", "sms", "notes", "dillo")
 
 
 def kbd_watcher():
@@ -121,14 +121,14 @@ def kbd_watcher():
         if want == last:
             continue
         last = want
-        on = subprocess.run(["pgrep", "svkbd"],
+        on = subprocess.run(["pgrep", "-f", "bin/rukbd"],
                             stdout=subprocess.DEVNULL).returncode == 0
         if want and not on:
             subprocess.run(["/usr/local/bin/kbd"], env=env,
                            stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
         elif not want and on:
-            subprocess.run(["pkill", "svkbd"], stdout=subprocess.DEVNULL)
+            subprocess.run(["pkill", "-f", "bin/rukbd"], stdout=subprocess.DEVNULL)
 
 
 def main():

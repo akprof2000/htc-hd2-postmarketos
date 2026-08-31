@@ -1,0 +1,7 @@
+#!/bin/sh
+# Супервизор домашнего экрана и кнопок (после ручных перезапусков X).
+while :; do
+    pgrep -f 'python3 /usr/local/bin/home' >/dev/null ||         { rm -f /tmp/.home.lock; DISPLAY=:0 setsid /usr/local/bin/home >>/tmp/home.err 2>&1 & }
+    pgrep -f 'python3 /usr/local/bin/keysd' >/dev/null ||         setsid /usr/bin/python3 /usr/local/bin/keysd >>/tmp/keysd.err 2>&1 &
+    sleep 5
+done
