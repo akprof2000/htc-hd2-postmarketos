@@ -336,6 +336,27 @@ def main():
                    "4": "3G+", "5": "3G+", "6": "3G+", "7": "LTE"}
             write("net", "%s %s" % (act.get(m.group(2), "?"), m.group(1)))
 
+        # NITZ: время с вышки — +HTCCTZV: "гг/мм/дд,чч:мм:сс+смещ",
+        # смещение в четвертях часа. Правим системные часы при уходе >2 мин.
+        m = re.match(r'\+HTCCTZV:\s*"(\d+)/(\d+)/(\d+),(\d+):(\d+):(\d+)'
+                     r'([+-]\d+)', line)
+        if m:
+            y, mo, d, h, mi, s = (int(x) for x in m.groups()[:6])
+            off = int(m.group(7)) * 900          # четверти часа -> секунды
+            # NITZ-время локальное; минус смещение = UTC
+            import calendar
+            try:
+                utc = calendar.timegm((2000 + y, mo, d, h, mi, s)) - off
+            except (ValueError, OverflowError):
+                return
+            if abs(utc - time.time()) > 120:
+                subprocess.run(["date", "-u", "-s", time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.gmtime(utc))],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["hwclock", "-w", "-u"],
+                               stderr=subprocess.DEVNULL)
+                log("время синхронизировано с вышкой")
+
         m = re.match(r'\+CMTI:\s*"?(\w+)"?,(\d+)', line)
         if m:
             with open(os.path.join(RUN, "sms_new"), "a") as f:
