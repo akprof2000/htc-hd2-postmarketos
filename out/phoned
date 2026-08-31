@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Демон модема HTC HD2.
+
+Канал /dev/smd0 может держать открытым только один процесс, поэтому демон
+владеет им единолично: читает события модема, раскладывает состояние по
+файлам и принимает команды из очереди. Интерфейс с модемом напрямую не
+разговаривает — только через этот демон.
+
+Состояние в /run/phone/:
+    state    — idle | ringing | active | dialing
+    number   — номер собеседника (если известен)
+    log      — последние события, для отладки
+    cmd      — очередь (FIFO): сюда пишутся AT-команды
+    sms      — принятые сообщения, по одному на строку
+"""
+import os
+import re
+import select
+import subprocess
+import sys
+import time
+
+DEV = "/dev/smd0"
+RUN = "/run/phone"
+CMD = os.path.join(RUN, "cmd")
+
+
+def setup():
+    os.makedirs(RUN, exist_ok=True)
+    if not os.path.exists(DEV):
+        os.system("mknod %s c 253 0" % DEV)
+    # сырой режим: модем шлёт строки как есть
+    subprocess.run(["stty", "-F", DEV, "raw", "-echo"],
+                   stderr=subprocess.DEVNULL)
+    if not os.path.exists(CMD):
+        os.mkfifo(CMD, 0o666)
+    write("state", "idle")
+    write("number", "")
+
+
+def write(name, value):
+    tmp = os.path.join(RUN, name + ".tmp")
+    with open(tmp, "w") as f:
+        f.write(value)
+    os.replace(tmp, os.path.join(RUN, name))
+
+
+def log(line):
+    with open(os.path.join(RUN, "log"), "a") as f:
+        f.write("%s %s\n" % (time.strftime("%H:%M:%S"), line))
+    # не даём разрастаться
+    try:
+        p = os.path.join(RUN, "log")
+        if os.path.getsize(p) > 100000:
+            lines = open(p).readlines()[-200:]
+            open(p, "w").writelines(lines)
+    except OSError:
+        pass
+
+
+def main():
+    setup()
+    fd = os.open(DEV, os.O_RDWR | os.O_NONBLOCK)
+    cmdfd = os.open(CMD, os.O_RDONLY | os.O_NONBLOCK)
+
+    # приветствие модему: определитель номера, расширенный RING, текстовые SMS
+    for at in ("ATV1", "AT+CLIP=1", "AT+CRC=1", "AT+CMGF=1", "AT+CNMI=2,1,0,0,0"):
+        os.write(fd, (at + "\r").encode())
+        time.sleep(0.4)
+
+    buf = b""
+    cmdbuf = b""
+    while True:
+        r, _, _ = select.select([fd, cmdfd], [], [], 1.0)
+
+        if cmdfd in r:
+            try:
+                chunk = os.read(cmdfd, 4096)
+            except OSError:
+                chunk = b""
+            if chunk:
+                cmdbuf += chunk
+                while b"\n" in cmdbuf:
+                    line, cmdbuf = cmdbuf.split(b"\n", 1)
+                    cmd = line.decode(errors="replace").strip()
+                    if cmd:
+                        log("-> " + cmd)
+                        os.write(fd, (cmd + "\r").encode())
+            else:
+                # писатель закрыл FIFO — переоткрываем
+                os.close(cmdfd)
+                cmdfd = os.open(CMD, os.O_RDONLY | os.O_NONBLOCK)
+
+        if fd in r:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                chunk = b""
+            if not chunk:
+                continue
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                handle(line.decode(errors="replace").strip())
+
+
+def handle(line):
+    if not line:
+        return
+    log("<- " + line)
+
+    # входящий вызов
+    if line.startswith("+CRING") or line == "RING":
+        write("state", "ringing")
+
+    # номер звонящего
+    m = re.match(r'\+CLIP:\s*"([^"]*)"', line)
+    if m:
+        write("number", m.group(1))
+
+    # состояние вызовов: +CLCC: id,dir,stat,mode,mpty,"номер",тип
+    m = re.match(r'\+CLCC:\s*\d+,(\d+),(\d+),', line)
+    if m:
+        stat = m.group(2)
+        write("state", {"0": "active", "2": "dialing",
+                        "3": "dialing", "4": "ringing"}.get(stat, "active"))
+
+    # разговор завершён
+    if line in ("NO CARRIER", "BUSY", "NO ANSWER", "OK") :
+        # OK сам по себе ничего не значит — проверяем реальное состояние
+        if line != "OK":
+            write("state", "idle")
+            write("number", "")
+
+    if line == "NO CARRIER":
+        write("state", "idle")
+        write("number", "")
+
+    # новое SMS
+    m = re.match(r'\+CMTI:\s*"?(\w+)"?,(\d+)', line)
+    if m:
+        with open(os.path.join(RUN, "sms_new"), "a") as f:
+            f.write("%s %s\n" % (m.group(1), m.group(2)))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:  # демон не должен умирать молча
+        log("ОШИБКА: %r" % (e,))
+        sys.exit(1)

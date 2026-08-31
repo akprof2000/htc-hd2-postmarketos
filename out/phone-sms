@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""SMS для HTC HD2.
+
+Со звуком в разговоре не сложилось, зато сообщения работают полностью —
+и делают аппарат настоящим средством связи.
+
+Читает список с SIM через демон (AT+CMGL), отправляет через AT+CMGS.
+Как и звонилка, с модемом напрямую не разговаривает: канал у демона.
+"""
+import os
+import re
+import time
+import tkinter as tk
+from tkinter import scrolledtext
+
+RUN = "/run/phone"
+CMD = os.path.join(RUN, "cmd")
+LOG = os.path.join(RUN, "log")
+
+BG     = "#101418"
+FG     = "#e8eef5"
+DIM    = "#7c8794"
+ACCENT = "#2e7d32"
+FIELD  = "#1c2530"
+
+
+def send_at(at):
+    try:
+        with open(CMD, "w") as f:
+            f.write(at + "\n")
+    except OSError:
+        pass
+
+
+def log_tail(seconds=3.0):
+    """Строки, пришедшие от модема за последние N секунд."""
+    try:
+        lines = open(LOG).readlines()
+    except OSError:
+        return []
+    cutoff = time.time() - seconds
+    out = []
+    for ln in lines[-400:]:
+        parts = ln.split(None, 2)
+        if len(parts) < 3 or parts[1] != "<-":
+            continue
+        try:
+            t = time.strptime(parts[0], "%H:%M:%S")
+        except ValueError:
+            continue
+        now = time.localtime()
+        stamp = time.mktime((now.tm_year, now.tm_mon, now.tm_mday,
+                             t.tm_hour, t.tm_min, t.tm_sec, 0, 0, -1))
+        if stamp >= cutoff:
+            out.append(parts[2].rstrip())
+    return out
+
+
+class Sms:
+    def __init__(self, root):
+        self.root = root
+        root.title("Сообщения")
+        root.configure(bg=BG)
+        root.geometry("480x770+0+0")
+
+        tk.Label(root, text="Кому (номер)", font=("DejaVu Sans", 11),
+                 bg=BG, fg=DIM, anchor="w", padx=10).pack(fill="x", pady=(8, 0))
+        self.to = tk.Entry(root, font=("DejaVu Sans", 16), bg=FIELD, fg=FG,
+                           insertbackground=FG, relief="flat")
+        self.to.pack(fill="x", padx=10, pady=4, ipady=6)
+
+        tk.Label(root, text="Текст", font=("DejaVu Sans", 11),
+                 bg=BG, fg=DIM, anchor="w", padx=10).pack(fill="x", pady=(6, 0))
+        self.text = tk.Text(root, font=("DejaVu Sans", 14), height=5,
+                            bg=FIELD, fg=FG, insertbackground=FG, relief="flat",
+                            wrap="word")
+        self.text.pack(fill="x", padx=10, pady=4)
+
+        bar = tk.Frame(root, bg=BG)
+        bar.pack(fill="x", padx=10, pady=6)
+        tk.Button(bar, text="Отправить", font=("DejaVu Sans", 14, "bold"),
+                  bg=ACCENT, fg="white", relief="flat", bd=0, height=2,
+                  command=self.send).pack(side="left", expand=True, fill="both",
+                                          padx=(0, 4))
+        tk.Button(bar, text="Обновить", font=("DejaVu Sans", 14),
+                  bg=FIELD, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.refresh).pack(side="left", expand=True,
+                                             fill="both", padx=(4, 0))
+
+        self.status = tk.Label(root, text="", font=("DejaVu Sans", 10),
+                               bg=BG, fg=DIM, anchor="w", padx=10)
+        self.status.pack(fill="x")
+
+        tk.Label(root, text="Входящие", font=("DejaVu Sans", 11),
+                 bg=BG, fg=DIM, anchor="w", padx=10).pack(fill="x", pady=(8, 0))
+        self.list = scrolledtext.ScrolledText(root, font=("DejaVu Sans", 11),
+                                              bg=FIELD, fg=FG, relief="flat",
+                                              wrap="word")
+        self.list.pack(expand=True, fill="both", padx=10, pady=(4, 10))
+
+        self.refresh()
+
+    def send(self):
+        num = self.to.get().strip()
+        body = self.text.get("1.0", "end").strip()
+        if not num or not body:
+            self.status.config(text="нужен номер и текст", fg="#ef5350")
+            return
+        # AT+CMGS ждёт текст, затем Ctrl-Z (0x1A)
+        send_at('AT+CMGS="%s"' % num)
+        time.sleep(1.0)
+        send_at(body + "\x1a")
+        self.status.config(text="отправляется…", fg="#ffa726")
+        self.root.after(6000, self.check_sent)
+
+    def check_sent(self):
+        recent = log_tail(8)
+        if any(l.startswith("+CMGS") for l in recent):
+            self.status.config(text="отправлено", fg="#66bb6a")
+            self.text.delete("1.0", "end")
+        elif any("ERROR" in l for l in recent):
+            self.status.config(text="ошибка отправки", fg="#ef5350")
+        else:
+            self.status.config(text="ответа нет", fg=DIM)
+
+    def refresh(self):
+        self.status.config(text="читаю сообщения…", fg=DIM)
+        send_at("AT+CMGF=1")
+        time.sleep(0.4)
+        send_at('AT+CMGL="ALL"')
+        self.root.after(4000, self.show)
+
+    def show(self):
+        lines = log_tail(6)
+        msgs = []
+        cur = None
+        for ln in lines:
+            m = re.match(r'\+CMGL:\s*(\d+),"([^"]*)","([^"]*)",[^,]*,"([^"]*)"',
+                         ln)
+            if m:
+                cur = {"idx": m.group(1), "from": m.group(3),
+                       "when": m.group(4), "body": ""}
+                msgs.append(cur)
+            elif cur is not None and ln not in ("OK", ""):
+                cur["body"] += ln
+                cur = None
+        self.list.delete("1.0", "end")
+        if not msgs:
+            self.list.insert("end", "нет сообщений\n")
+        for m in msgs:
+            self.list.insert("end", "%s  ·  %s\n%s\n\n"
+                             % (m["from"], m["when"], m["body"]))
+        self.status.config(text="сообщений: %d" % len(msgs), fg=DIM)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    Sms(root)
+    root.mainloop()

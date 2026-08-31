@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Звонилка HTC HD2 — интерфейс.
+
+С модемом напрямую не разговаривает: читает состояние из /run/phone/ и шлёт
+команды демону через очередь. Так канал модема остаётся у одного владельца.
+
+Экран 480x800, всё под палец: цифры крупные, кнопки высокие.
+"""
+import os
+import subprocess
+import tkinter as tk
+
+RUN = "/run/phone"
+CMD = os.path.join(RUN, "cmd")
+
+BG      = "#101418"
+FG      = "#e8eef5"
+DIM     = "#7c8794"
+ACCENT  = "#2e7d32"   # зелёный — принять/позвонить
+DANGER  = "#c62828"   # красный — сброс
+KEY     = "#1c2530"
+
+
+def send(at):
+    """Отдать AT-команду демону."""
+    try:
+        with open(CMD, "w") as f:
+            f.write(at + "\n")
+    except OSError:
+        pass
+
+
+def read(name, default=""):
+    try:
+        with open(os.path.join(RUN, name)) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+class Phone:
+    def __init__(self, root):
+        self.root = root
+        self.typed = ""
+        self.state = "idle"
+
+        root.title("Телефон")
+        root.configure(bg=BG)
+        root.geometry("480x770+0+0")
+
+        # ── строка состояния ──────────────────────────────────────────
+        self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
+                               bg=BG, fg=DIM, anchor="w", padx=12)
+        self.status.pack(fill="x", pady=(6, 0))
+
+        # ── номер ─────────────────────────────────────────────────────
+        self.display = tk.Label(root, text="", font=("DejaVu Sans", 26, "bold"),
+                                bg=BG, fg=FG, height=2)
+        self.display.pack(fill="x")
+
+        # ── клавиатура ────────────────────────────────────────────────
+        self.pad = tk.Frame(root, bg=BG)
+        self.pad.pack(expand=True, fill="both", padx=8)
+        keys = [("1", ""), ("2", "ABC"), ("3", "DEF"),
+                ("4", "GHI"), ("5", "JKL"), ("6", "MNO"),
+                ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"),
+                ("*", ""), ("0", "+"), ("#", "")]
+        for i, (d, sub) in enumerate(keys):
+            b = tk.Button(self.pad, text=d, font=("DejaVu Sans", 22),
+                          bg=KEY, fg=FG, activebackground="#2a3a4a",
+                          relief="flat", bd=0,
+                          command=lambda x=d: self.press(x))
+            b.grid(row=i // 3, column=i % 3, sticky="nsew", padx=4, pady=4)
+        for c in range(3):
+            self.pad.columnconfigure(c, weight=1)
+        for r in range(4):
+            self.pad.rowconfigure(r, weight=1)
+
+        # ── кнопки действий ───────────────────────────────────────────
+        bar = tk.Frame(root, bg=BG)
+        bar.pack(fill="x", padx=8, pady=8)
+
+        self.btn_call = tk.Button(bar, text="Позвонить",
+                                  font=("DejaVu Sans", 15, "bold"),
+                                  bg=ACCENT, fg="white", relief="flat", bd=0,
+                                  height=2, command=self.call)
+        self.btn_call.pack(side="left", expand=True, fill="both", padx=(0, 4))
+
+        self.btn_hang = tk.Button(bar, text="Сброс",
+                                  font=("DejaVu Sans", 15, "bold"),
+                                  bg=DANGER, fg="white", relief="flat", bd=0,
+                                  height=2, command=self.hangup)
+        self.btn_hang.pack(side="left", expand=True, fill="both", padx=(4, 0))
+
+        self.btn_del = tk.Button(root, text="◀ стереть",
+                                 font=("DejaVu Sans", 12),
+                                 bg=BG, fg=DIM, relief="flat", bd=0,
+                                 command=self.backspace)
+        self.btn_del.pack(fill="x", pady=(0, 6))
+
+        self.tick()
+
+    # ── действия ──────────────────────────────────────────────────────
+    def press(self, d):
+        if self.state == "idle":
+            self.typed += d
+            self.refresh()
+
+    def backspace(self):
+        self.typed = self.typed[:-1]
+        self.refresh()
+
+    def call(self):
+        if self.state == "ringing":
+            send("ATA")                      # принять входящий
+        elif self.typed:
+            send("ATD%s;" % self.typed)      # набрать
+            send("AT+CLCC")
+
+    def hangup(self):
+        send("ATH")
+        self.typed = ""
+
+    # ── обновление ────────────────────────────────────────────────────
+    def refresh(self):
+        if self.state == "idle":
+            self.display.config(text=self.typed or "—", fg=FG)
+        else:
+            self.display.config(text=read("number") or "неизвестный", fg=FG)
+
+    def tick(self):
+        st = read("state", "idle")
+        if st != self.state:
+            self.state = st
+            self.on_state()
+        if self.state != "idle":
+            send("AT+CLCC")                  # держим состояние в курсе
+        self.refresh()
+        self.root.after(1200, self.tick)
+
+    def on_state(self):
+        if self.state == "ringing":
+            self.status.config(text="ВХОДЯЩИЙ ВЫЗОВ", fg="#66bb6a")
+            self.btn_call.config(text="Ответить")
+        elif self.state == "active":
+            self.status.config(text="Разговор  ·  звука нет (см. README)",
+                               fg="#ffa726")
+            self.btn_call.config(text="—")
+        elif self.state == "dialing":
+            self.status.config(text="Набор…", fg="#ffa726")
+            self.btn_call.config(text="—")
+        else:
+            self.status.config(text=self.net_line(), fg=DIM)
+            self.btn_call.config(text="Позвонить")
+            self.typed = self.typed
+
+    def net_line(self):
+        return "Готов"
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    Phone(root)
+    root.mainloop()
