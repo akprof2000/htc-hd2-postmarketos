@@ -333,6 +333,11 @@ def main():
                         pending["clcc"] = False
                         modem(cmd)
                         if cmd.upper().startswith("ATD"):
+                            # V.250: любой символ во время набора прерывает
+                            # его — не слать модему ничего первые секунды
+                            last_clcc = time.monotonic() + 2.0
+                            calls.number = cmd[3:].rstrip(";")
+                            write("number", calls.number)
                             calls.set_state("dialing")
             # EOF здесь не бывает: очередь открыта и на запись
 
