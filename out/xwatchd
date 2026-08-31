@@ -1,0 +1,27 @@
+#!/bin/sh
+# Сторож графики HTC HD2: X иногда зависает, отдавая чёрный кадр при
+# живом сервере. Два чёрных кадра подряд при включённой подсветке —
+# перезапускаем графику. Проверка раз в 60 с, стоит дёшево.
+BL=/sys/class/leds/lcd-backlight/brightness
+black=0
+while :; do
+    sleep 60
+    [ "$(cat $BL 2>/dev/null)" = "0" ] && { black=0; continue; }
+    # средняя яркость кадра: суммируем первые 64К пикселей
+    avg=$(DISPLAY=:0 timeout 20 xwd -root -silent 2>/dev/null | \
+        tail -c +3300 | head -c 262144 | \
+        od -An -tu1 -v 2>/dev/null | \
+        awk '{for(i=1;i<=NF;i++)s+=$i; n+=NF} END{print (n?int(s/n):255)}')
+    [ -z "$avg" ] && avg=255
+    if [ "$avg" -lt 2 ]; then
+        black=$((black+1))
+        if [ $black -ge 2 ]; then
+            echo "$(date +%H:%M:%S) чёрный экран x2 — перезапуск графики" \
+                >> /var/log/xwatchd.log
+            /usr/local/bin/x-restart >/dev/null 2>&1
+            black=0
+        fi
+    else
+        black=0
+    fi
+done
