@@ -1,0 +1,22 @@
+prog "✕ Закрыть окно" - sh -c "DISPLAY=:0 wmctrl -c :ACTIVE:"
+prog "⛶ Во весь экран" - sh -c "DISPLAY=:0 wmctrl -r :ACTIVE: -b toggle,maximized_vert,maximized_horz"
+prog "Домой" - /usr/local/bin/home
+prog "Клавиатура" - /usr/local/bin/kbd
+prog "Сообщения" - /usr/local/bin/phone-sms
+prog "Телефон" - /usr/local/bin/phone-gui
+menu "Яркость" folder {
+    prog "Максимум"   - /usr/local/bin/backlight 255
+    prog "Ярко"       - /usr/local/bin/backlight 210
+    prog "Средне"     - /usr/local/bin/backlight 150
+    prog "Приглушить" - /usr/local/bin/backlight 90
+    prog "Минимум"    - /usr/local/bin/backlight 20
+    separator
+    prog "Ярче  (+)"  - /usr/local/bin/backlight +
+    prog "Темнее (-)" - /usr/local/bin/backlight -
+}
+separator
+prog "Терминал" - /usr/local/bin/term-max
+prog "Файлы" - pcmanfm
+prog "Браузер" - netsurf-gtk3
+separator
+prog "Перезапустить графику" - /usr/local/bin/x-restart
