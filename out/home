@@ -20,7 +20,7 @@ TILES = [
     ("☎", "Телефон",    "#1f7a33", "/usr/local/bin/phone-gui", False),
     ("✉", "СМС",        "#0a6ebd", "/usr/local/bin/phone-sms", False),
     (">_",     "Терминал",   "#4a4a56", "/usr/local/bin/term-max",  False),
-    ("▤", "Файлы",      "#8a5a2e", "pcmanfm",                  False),
+    ("▤", "Файлы",      "#8a5a2e", "xfe",                  False),
     ("⌨", "Клава",      "#5133b8", "/usr/local/bin/kbd",       False),
     ("@",      "Браузер",    "#a4262c", "netsurf-gtk3",             False),
     ("☀", "Ярче",       "#217a6b", "/usr/local/bin/backlight +",  False),
