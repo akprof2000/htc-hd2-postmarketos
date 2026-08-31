@@ -312,6 +312,19 @@ def main():
         if m:
             write("csq", m.group(1))
 
+        # точный уровень: +CSQ: n,ber; n=0..31 -> дБм = -113 + 2n
+        m = re.match(r'\+CSQ:\s*(\d+)', line)
+        if m:
+            n = int(m.group(1))
+            write("dbm", str(-113 + 2 * n) if n < 99 else "")
+
+        # тип сети из +COPS: mode,fmt,"оператор",AcT
+        m = re.match(r'\+COPS:\s*\d+,\d+,"([^"]*)",(\d+)', line)
+        if m:
+            act = {"0": "GSM", "1": "GSM", "2": "3G", "3": "EDGE",
+                   "4": "3G+", "5": "3G+", "6": "3G+", "7": "LTE"}
+            write("net", "%s %s" % (act.get(m.group(2), "?"), m.group(1)))
+
         m = re.match(r'\+CMTI:\s*"?(\w+)"?,(\d+)', line)
         if m:
             with open(os.path.join(RUN, "sms_new"), "a") as f:
@@ -320,6 +333,7 @@ def main():
     buf = b""
     cmdbuf = b""
     last_clcc = 0.0
+    last_netpoll = 0.0
     while True:
         r, _, _ = select.select([fd, cmdfd], [], [], 1.0)
 
@@ -368,6 +382,11 @@ def main():
             last_clcc = now
             pending["clcc"], pending["seen"] = True, False
             modem("AT+CLCC")
+        # в покое раз в 25 с спрашиваем точный сигнал и тип сети
+        if calls.state == "idle" and now - last_netpoll > 25.0:
+            last_netpoll = now
+            modem("AT+CSQ")
+            modem("AT+COPS?")
         ringer.tick(calls.state == "ringing")
 
 

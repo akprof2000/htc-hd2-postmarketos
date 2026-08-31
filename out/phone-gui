@@ -53,10 +53,15 @@ class Phone:
         root.configure(bg=BG)
         root.geometry("456x736+0+0")
 
+        # ── постоянный индикатор сети (как в смартфонах) ──────────────
+        self.netbar = tk.Label(root, text="", font=("DejaVu Sans", 11),
+                               bg=BG, fg=DIM, anchor="e", padx=12)
+        self.netbar.pack(fill="x", pady=(4, 0))
+
         # ── строка состояния ──────────────────────────────────────────
         self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
                                bg=BG, fg=DIM, anchor="w", padx=12)
-        self.status.pack(fill="x", pady=(6, 0))
+        self.status.pack(fill="x")
 
         # ── номер / таймер ────────────────────────────────────────────
         self.display = tk.Label(root, text="", font=("DejaVu Sans", 26, "bold"),
@@ -230,19 +235,26 @@ class Phone:
     def net_line(self):
         csq = read("csq")
         if not csq:
-            return "Готов"
+            return "нет связи с модемом"
         n = min(int(csq), 5)
-        bars = "▁▂▃▄▅"[:n].ljust(5, "·")
-        note = "  ·  сигнал слабый!" if n <= 2 else ""
-        return "Сеть %s %s/5%s" % (bars, n, note)
+        bars = "".join("▁▂▃▄▅"[i] if i < n else "·" for i in range(5))
+        dbm = read("dbm")
+        net = read("net")          # напр. "3G North-West GSM"
+        parts = [bars]
+        if dbm:
+            parts.append(dbm + " дБм")
+        if net:
+            parts.append(net)
+        return "  ".join(parts)
 
     def tick(self):
         st = read("state", "idle")
         if st != self.state:
             self.state = st
             self.on_state()
-        if self.state == "idle":
-            self.status.config(text=self.net_line())
+        line = self.net_line()
+        weak = (read("csq") or "9").isdigit() and int(read("csq") or 9) <= 2
+        self.netbar.config(text=line, fg="#ef9a9a" if weak else DIM)
         self.refresh()
         self.root.after(700, self.tick)
 
@@ -266,11 +278,18 @@ class Phone:
             self.status.config(text="Набор…", fg=WARN)
             self.btn_call.config(text="—")
         else:
-            self.status.config(text=self.net_line(), fg=DIM)
+            self.status.config(text="Готов", fg=DIM)
             self.btn_call.config(text="Позвонить")
 
 
 if __name__ == "__main__":
+    # вторая копия окна дробит экран пополам — не даём ей запуститься
+    import fcntl
+    _lock = open("/run/phone/gui.lock", "w")
+    try:
+        fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit("звонилка уже запущена")
     root = tk.Tk()
     Phone(root)
     root.mainloop()
