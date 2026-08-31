@@ -356,13 +356,18 @@ def main():
                         # ответ на наш опрос CLCC
                         pending["clcc"] = False
                         modem(cmd)
-                        if cmd.upper().startswith("ATD"):
+                        up = cmd.upper()
+                        if up.startswith("ATD"):
                             # V.250: любой символ во время набора прерывает
                             # его — не слать модему ничего первые секунды
                             last_clcc = time.monotonic() + 2.0
                             calls.number = cmd[3:].rstrip(";")
                             write("number", calls.number)
                             calls.set_state("dialing")
+                        elif up.startswith(("ATA", "ATH")):
+                            # то же при ответе и отбое: CLCC сразу после
+                            # ATA обрывал установку соединения
+                            last_clcc = time.monotonic() + 2.0
             # EOF здесь не бывает: очередь открыта и на запись
 
         if fd in r:
