@@ -171,9 +171,12 @@ class Phone:
             fg=WARN if self.muted else FG)
 
     def toggle_route(self):
-        headset = read("route") != "headset"
-        send("@route %s" % ("h" if headset else "s"))
-        self.btn_route.config(text="Гарнитура" if headset else "Трубка")
+        # цикл: трубка -> громкий динамик -> гарнитура -> трубка
+        nxt = {"handset": ("l", "Динамик"),
+               "speaker": ("h", "Гарнитура")}.get(read("route"),
+                                                  ("s", "Трубка"))
+        send("@route %s" % nxt[0])
+        self.btn_route.config(text=nxt[1])
 
     # ── журнал ────────────────────────────────────────────────────────
     def show_history(self):
@@ -224,11 +227,22 @@ class Phone:
         else:
             self.display.config(text=read("number") or "неизвестный", fg=FG)
 
+    def net_line(self):
+        csq = read("csq")
+        if not csq:
+            return "Готов"
+        n = min(int(csq), 5)
+        bars = "▁▂▃▄▅"[:n].ljust(5, "·")
+        note = "  ·  сигнал слабый!" if n <= 2 else ""
+        return "Сеть %s %s/5%s" % (bars, n, note)
+
     def tick(self):
         st = read("state", "idle")
         if st != self.state:
             self.state = st
             self.on_state()
+        if self.state == "idle":
+            self.status.config(text=self.net_line())
         self.refresh()
         self.root.after(700, self.tick)
 
@@ -252,7 +266,7 @@ class Phone:
             self.status.config(text="Набор…", fg=WARN)
             self.btn_call.config(text="—")
         else:
-            self.status.config(text="Готов", fg=DIM)
+            self.status.config(text=self.net_line(), fg=DIM)
             self.btn_call.config(text="Позвонить")
 
 

@@ -51,6 +51,7 @@ DEV_HANDSET_SPKR = 0x1081511
 DEV_HANDSET_MIC  = 0x1081512
 DEV_HEADSET_SPKR = 0x107ac8a
 DEV_HEADSET_MIC  = 0x1081510
+DEV_SPKR_MONO    = 0x1081513   # громкий динамик (работает от beep)
 
 
 def setup():
@@ -133,11 +134,14 @@ class Audio:
     def apply_route(self):
         if not self.on:
             return
-        headset = read_state("route") == "headset"
-        rx = DEV_HEADSET_SPKR if headset else DEV_HANDSET_SPKR
-        tx = DEV_HEADSET_MIC if headset else DEV_HANDSET_MIC
+        route = read_state("route")
+        rx, tx = {
+            "headset": (DEV_HEADSET_SPKR, DEV_HEADSET_MIC),
+            "speaker": (DEV_SPKR_MONO,    DEV_HANDSET_MIC),
+        }.get(route, (DEV_HANDSET_SPKR, DEV_HANDSET_MIC))
         audio_ioctl(AUDIO_SWITCH_DEVICE, rx, 0)
         audio_ioctl(AUDIO_SWITCH_DEVICE, tx, 0)
+        log("маршрут: %s" % (route or "handset"))
 
     def apply_mute(self):
         if not self.on:
@@ -254,7 +258,8 @@ def main():
         """Служебные команды из очереди: @route/@mute/@vol."""
         parts = cmd.split()
         if parts[0] == "@route" and len(parts) > 1:
-            write("route", "headset" if parts[1].startswith("h") else "handset")
+            write("route", {"h": "headset", "l": "speaker"}.get(
+                parts[1][:1], "handset"))
             audio.apply_route()
         elif parts[0] == "@mute" and len(parts) > 1:
             write("mute", "1" if parts[1] == "1" else "0")
@@ -301,6 +306,11 @@ def main():
 
         if line in ("NO CARRIER", "BUSY", "NO ANSWER", "NO DIALTONE"):
             calls.set_state("idle")
+
+        # уровень сигнала: @HTCCSQ модем шлёт сам, шкала ~0..5
+        m = re.match(r'@HTCCSQ:\s*(\d+)', line)
+        if m:
+            write("csq", m.group(1))
 
         m = re.match(r'\+CMTI:\s*"?(\w+)"?,(\d+)', line)
         if m:
