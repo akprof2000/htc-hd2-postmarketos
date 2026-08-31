@@ -34,6 +34,21 @@ def run(cmd):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def buzz(ms=35):
+    """Короткая вибра — тактильный отклик нажатия."""
+    try:
+        with open("/sys/class/timed_output/vibrator/enable", "w") as f:
+            f.write(str(ms))
+    except OSError:
+        pass
+
+
+def lighten(color):
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % (min(r + 70, 255), min(g + 70, 255),
+                              min(b + 70, 255))
+
+
 def read(path, default=""):
     try:
         with open(path) as f:
@@ -85,8 +100,17 @@ class Home:
             n = tk.Label(t, text=name, font=("DejaVu Sans", 13, "bold"),
                          bg=color, fg="white")
             n.place(x=10, rely=1.0, y=-6, anchor="sw")
+            def tap(_e, c=cmd, frame=t, col=color, sym_l=s, name_l=n):
+                # видимый и тактильный отклик: вспышка плитки + вибра
+                buzz()
+                lit = lighten(col)
+                for w in (frame, sym_l, name_l):
+                    w.config(bg=lit)
+                frame.after(150, lambda: [w.config(bg=col)
+                                          for w in (frame, sym_l, name_l)])
+                frame.after(60, lambda: run(c))
             for w in (t, s, n):
-                w.bind("<Button-1>", lambda _e, c=cmd: run(c))
+                w.bind("<Button-1>", tap)
             col += span
             if col >= 2:
                 row, col = row + 1, 0
