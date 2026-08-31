@@ -2,16 +2,18 @@
 """Звонилка HTC HD2 — интерфейс.
 
 С модемом напрямую не разговаривает: читает состояние из /run/phone/ и шлёт
-команды демону через очередь. Так канал модема остаётся у одного владельца.
+команды демону через очередь. Голосовым трактом тоже управляет демон — GUI
+только просит (@route/@mute). Так канал модема и звук у одного владельца.
 
 Экран 480x800, всё под палец: цифры крупные, кнопки высокие.
 """
 import os
-import subprocess
+import time
 import tkinter as tk
 
 RUN = "/run/phone"
 CMD = os.path.join(RUN, "cmd")
+HIST = "/var/lib/phone/history"
 
 BG      = "#101418"
 FG      = "#e8eef5"
@@ -19,13 +21,14 @@ DIM     = "#7c8794"
 ACCENT  = "#2e7d32"   # зелёный — принять/позвонить
 DANGER  = "#c62828"   # красный — сброс
 KEY     = "#1c2530"
+WARN    = "#ffa726"
 
 
-def send(at):
-    """Отдать AT-команду демону."""
+def send(line):
+    """Отдать команду демону."""
     try:
         with open(CMD, "w") as f:
-            f.write(at + "\n")
+            f.write(line + "\n")
     except OSError:
         pass
 
@@ -43,6 +46,8 @@ class Phone:
         self.root = root
         self.typed = ""
         self.state = "idle"
+        self.call_start = None
+        self.muted = False
 
         root.title("Телефон")
         root.configure(bg=BG)
@@ -53,19 +58,15 @@ class Phone:
                                bg=BG, fg=DIM, anchor="w", padx=12)
         self.status.pack(fill="x", pady=(6, 0))
 
-        # ── номер ─────────────────────────────────────────────────────
+        # ── номер / таймер ────────────────────────────────────────────
         self.display = tk.Label(root, text="", font=("DejaVu Sans", 26, "bold"),
                                 bg=BG, fg=FG, height=2)
         self.display.pack(fill="x")
 
-        # ── клавиатура ────────────────────────────────────────────────
+        # ── клавиатура (в разговоре шлёт DTMF) ────────────────────────
         self.pad = tk.Frame(root, bg=BG)
         self.pad.pack(expand=True, fill="both", padx=8)
-        keys = [("1", ""), ("2", "ABC"), ("3", "DEF"),
-                ("4", "GHI"), ("5", "JKL"), ("6", "MNO"),
-                ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ"),
-                ("*", ""), ("0", "+"), ("#", "")]
-        for i, (d, sub) in enumerate(keys):
+        for i, d in enumerate("123456789*0#"):
             b = tk.Button(self.pad, text=d, font=("DejaVu Sans", 22),
                           bg=KEY, fg=FG, activebackground="#2a3a4a",
                           relief="flat", bd=0,
@@ -75,6 +76,19 @@ class Phone:
             self.pad.columnconfigure(c, weight=1)
         for r in range(4):
             self.pad.rowconfigure(r, weight=1)
+
+        # ── кнопки разговора (видны только в active) ──────────────────
+        self.tools = tk.Frame(root, bg=BG)
+        self.btn_mute = tk.Button(self.tools, text="Микрофон вкл",
+                                  font=("DejaVu Sans", 12), bg=KEY, fg=FG,
+                                  relief="flat", bd=0, height=2,
+                                  command=self.toggle_mute)
+        self.btn_mute.pack(side="left", expand=True, fill="both", padx=(0, 4))
+        self.btn_route = tk.Button(self.tools, text="Трубка",
+                                   font=("DejaVu Sans", 12), bg=KEY, fg=FG,
+                                   relief="flat", bd=0, height=2,
+                                   command=self.toggle_route)
+        self.btn_route.pack(side="left", expand=True, fill="both", padx=(4, 0))
 
         # ── кнопки действий ───────────────────────────────────────────
         bar = tk.Frame(root, bg=BG)
@@ -92,11 +106,31 @@ class Phone:
                                   height=2, command=self.hangup)
         self.btn_hang.pack(side="left", expand=True, fill="both", padx=(4, 0))
 
-        self.btn_del = tk.Button(root, text="◀ стереть",
-                                 font=("DejaVu Sans", 12),
-                                 bg=BG, fg=DIM, relief="flat", bd=0,
-                                 command=self.backspace)
-        self.btn_del.pack(fill="x", pady=(0, 6))
+        low = tk.Frame(root, bg=BG)
+        low.pack(fill="x", pady=(0, 6))
+        tk.Button(low, text="◀ стереть", font=("DejaVu Sans", 12),
+                  bg=BG, fg=DIM, relief="flat", bd=0,
+                  command=self.backspace).pack(side="left", expand=True,
+                                               fill="x")
+        tk.Button(low, text="Журнал", font=("DejaVu Sans", 12),
+                  bg=BG, fg=DIM, relief="flat", bd=0,
+                  command=self.show_history).pack(side="left", expand=True,
+                                                  fill="x")
+
+        # ── журнал вызовов (поверх всего) ─────────────────────────────
+        self.hist = tk.Frame(root, bg=BG)
+        tk.Label(self.hist, text="Журнал вызовов",
+                 font=("DejaVu Sans", 14, "bold"), bg=BG, fg=FG
+                 ).pack(pady=(10, 4))
+        self.histlist = tk.Listbox(self.hist, font=("DejaVu Sans Mono", 11),
+                                   bg=KEY, fg=FG, selectbackground="#2a3a4a",
+                                   relief="flat", bd=0, activestyle="none")
+        self.histlist.pack(expand=True, fill="both", padx=8)
+        self.histlist.bind("<ButtonRelease-1>", self.pick_history)
+        tk.Button(self.hist, text="Закрыть", font=("DejaVu Sans", 13),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.hist.place_forget).pack(fill="x", padx=8,
+                                                       pady=8)
 
         self.root.after(300, self.fix_place)
         self.root.after(1200, self.fix_place)
@@ -112,6 +146,8 @@ class Phone:
         if self.state == "idle":
             self.typed += d
             self.refresh()
+        elif self.state == "active":
+            send("AT+VTS=%s" % d)            # тоновый набор в разговоре
 
     def backspace(self):
         self.typed = self.typed[:-1]
@@ -120,18 +156,71 @@ class Phone:
     def call(self):
         if self.state == "ringing":
             send("ATA")                      # принять входящий
-        elif self.typed:
+        elif self.state == "idle" and self.typed:
             send("ATD%s;" % self.typed)      # набрать
-            send("AT+CLCC")
 
     def hangup(self):
         send("ATH")
         self.typed = ""
 
+    def toggle_mute(self):
+        self.muted = not self.muted
+        send("@mute %d" % self.muted)
+        self.btn_mute.config(
+            text="Микрофон ВЫКЛ" if self.muted else "Микрофон вкл",
+            fg=WARN if self.muted else FG)
+
+    def toggle_route(self):
+        headset = read("route") != "headset"
+        send("@route %s" % ("h" if headset else "s"))
+        self.btn_route.config(text="Гарнитура" if headset else "Трубка")
+
+    # ── журнал ────────────────────────────────────────────────────────
+    def show_history(self):
+        self.histlist.delete(0, "end")
+        self.numbers = []
+        try:
+            rows = open(HIST).readlines()[-40:]
+        except OSError:
+            rows = []
+        mark = {"in": "←", "out": "→"}
+        for row in reversed(rows):
+            p = row.strip().split(";")
+            if len(p) < 5:
+                continue
+            when, dirn, num, outcome, dur = p[:5]
+            extra = "пропущен" if outcome == "missed" else (
+                "%s:%02d" % (int(dur) // 60, int(dur) % 60)
+                if outcome == "ok" else "не состоялся")
+            self.histlist.insert(
+                "end", " %s %s %-15s %s" % (mark.get(dirn, "?"), when,
+                                            num, extra))
+            self.numbers.append(num)
+            if outcome == "missed":
+                self.histlist.itemconfig("end", fg=WARN)
+        if not rows:
+            self.histlist.insert("end", "  журнал пуст")
+            self.numbers.append("")
+        self.hist.place(x=0, y=0, relwidth=1, relheight=1)
+
+    def pick_history(self, _ev):
+        sel = self.histlist.curselection()
+        if sel and sel[0] < len(self.numbers):
+            num = self.numbers[sel[0]].strip()
+            if num and num not in ("?",):
+                self.typed = num
+                self.hist.place_forget()
+                self.refresh()
+
     # ── обновление ────────────────────────────────────────────────────
     def refresh(self):
         if self.state == "idle":
             self.display.config(text=self.typed or "—", fg=FG)
+        elif self.state == "active" and self.call_start:
+            d = int(time.time() - self.call_start)
+            self.display.config(
+                text="%s\n%d:%02d" % (read("number") or "разговор",
+                                      d // 60, d % 60), fg=FG)
         else:
             self.display.config(text=read("number") or "неизвестный", fg=FG)
 
@@ -140,29 +229,31 @@ class Phone:
         if st != self.state:
             self.state = st
             self.on_state()
-        if self.state != "idle":
-            send("AT+CLCC")                  # держим состояние в курсе
         self.refresh()
-        self.root.after(1200, self.tick)
+        self.root.after(700, self.tick)
 
     def on_state(self):
+        if self.state == "active":
+            self.call_start = time.time()
+            self.tools.pack(fill="x", padx=8, before=self.btn_call.master)
+        else:
+            self.call_start = None
+            self.tools.pack_forget()
+            if self.muted:               # к новому разговору — с микрофоном
+                self.toggle_mute()
+
         if self.state == "ringing":
             self.status.config(text="ВХОДЯЩИЙ ВЫЗОВ", fg="#66bb6a")
             self.btn_call.config(text="Ответить")
         elif self.state == "active":
-            self.status.config(text="Разговор  ·  звука нет (см. README)",
-                               fg="#ffa726")
+            self.status.config(text="Разговор  ·  цифры шлют тоны", fg=WARN)
             self.btn_call.config(text="—")
         elif self.state == "dialing":
-            self.status.config(text="Набор…", fg="#ffa726")
+            self.status.config(text="Набор…", fg=WARN)
             self.btn_call.config(text="—")
         else:
-            self.status.config(text=self.net_line(), fg=DIM)
+            self.status.config(text="Готов", fg=DIM)
             self.btn_call.config(text="Позвонить")
-            self.typed = self.typed
-
-    def net_line(self):
-        return "Готов"
 
 
 if __name__ == "__main__":
