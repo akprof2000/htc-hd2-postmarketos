@@ -8,3 +8,13 @@ ColorActiveTitleBarText="rgb:FF/FF/FF"
 GrabRootWindow=0
 ShowTaskBar=1
 RootMenuButton=1
+# IceMobile: панель без лишнего
+TaskBarShowCPUStatus=0
+TaskBarShowNetStatus=0
+TaskBarShowMEMStatus=0
+TaskBarShowCollapseButton=0
+TaskBarShowWorkspaces=0
+TaskBarShowShowDesktopButton=0
+TaskBarShowMailboxStatus=0
+WorkspaceNames=" HD2 "
+TaskBarShowWindowListMenu=0

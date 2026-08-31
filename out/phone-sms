@@ -28,13 +28,13 @@ FIELD  = "#1c2530"
 def keyboard(show=True):
     """Экранная клавиатура. Без неё в поля не набрать: физической нет."""
     if show:
-        if subprocess.run(["pgrep", "-f", "matchbox-keyboard"],
+        if subprocess.run(["pgrep", "svkbd"],
                           stdout=subprocess.DEVNULL).returncode != 0:
-            subprocess.Popen(["setsid", "matchbox-keyboard"],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
+            subprocess.run(["/usr/local/bin/kbd"],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
     else:
-        subprocess.run(["pkill", "-f", "matchbox-keyboard"],
+        subprocess.run(["pkill", "svkbd"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -162,6 +162,25 @@ class Sms:
         send_at('AT+CMGL="ALL"')
         self.root.after(4000, self.show)
 
+    @staticmethod
+    def dehex(s):
+        """Модем отдаёт текст и номер шестнадцатеричным потоком:
+        кириллица — UCS2 (4 знака на букву), номера — ASCII-hex."""
+        s = s.strip()
+        if not s or not re.fullmatch(r'[0-9A-Fa-f]+', s) or len(s) % 2:
+            return s
+        raw = bytes.fromhex(s)
+        # UCS2: чётные байты в основном 0x00/0x04 (латиница/кириллица)
+        if len(raw) % 2 == 0 and raw[::2].count(0) + raw[::2].count(4) \
+                >= len(raw) // 4:
+            try:
+                return raw.decode("utf-16-be")
+            except UnicodeDecodeError:
+                pass
+        if all(32 <= b < 127 for b in raw):
+            return raw.decode("ascii")
+        return s
+
     def show(self):
         lines = log_tail(6)
         msgs = []
@@ -170,19 +189,28 @@ class Sms:
             m = re.match(r'\+CMGL:\s*(\d+),"([^"]*)","([^"]*)",[^,]*,"([^"]*)"',
                          ln)
             if m:
-                cur = {"idx": m.group(1), "from": m.group(3),
+                cur = {"idx": m.group(1), "from": self.dehex(m.group(3)),
                        "when": m.group(4), "body": ""}
                 msgs.append(cur)
-            elif cur is not None and ln not in ("OK", ""):
-                cur["body"] += ln
-                cur = None
-        self.list.delete("1.0", "end")
-        if not msgs:
-            self.list.insert("end", "нет сообщений\n")
+            elif cur is not None and ln != "OK":
+                cur["body"] += self.dehex(ln)
+        # длинное SMS приходит кусками подряд от одного номера — склеиваем
+        merged = []
         for m in msgs:
+            if merged and merged[-1]["from"] == m["from"] and \
+                    int(m["idx"]) == merged[-1]["lastidx"] + 1:
+                merged[-1]["body"] += m["body"]
+                merged[-1]["lastidx"] = int(m["idx"])
+            else:
+                m["lastidx"] = int(m["idx"])
+                merged.append(m)
+        self.list.delete("1.0", "end")
+        if not merged:
+            self.list.insert("end", "нет сообщений\n")
+        for m in merged:
             self.list.insert("end", "%s  ·  %s\n%s\n\n"
                              % (m["from"], m["when"], m["body"]))
-        self.status.config(text="сообщений: %d" % len(msgs), fg=DIM)
+        self.status.config(text="сообщений: %d" % len(merged), fg=DIM)
 
 
 if __name__ == "__main__":
