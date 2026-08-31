@@ -77,12 +77,14 @@ class Home:
             t.grid(row=row, column=col, columnspan=span,
                    sticky="nsew", padx=5, pady=5)
             t.grid_propagate(False)
-            s = tk.Label(t, text=sym, font=("DejaVu Sans", 30, "bold"),
+            # символ в правом верхнем углу, подпись в левом нижнем —
+            # на низкой плитке по центру они наезжали друг на друга
+            s = tk.Label(t, text=sym, font=("DejaVu Sans", 22, "bold"),
                          bg=color, fg="white")
-            s.place(relx=0.5, rely=0.40, anchor="center")
-            n = tk.Label(t, text=name, font=("DejaVu Sans", 12, "bold"),
+            s.place(relx=1.0, x=-10, y=6, anchor="ne")
+            n = tk.Label(t, text=name, font=("DejaVu Sans", 13, "bold"),
                          bg=color, fg="white")
-            n.place(x=10, rely=1.0, y=-8, anchor="sw")
+            n.place(x=10, rely=1.0, y=-6, anchor="sw")
             for w in (t, s, n):
                 w.bind("<Button-1>", lambda _e, c=cmd: run(c))
             col += span
