@@ -1,0 +1,12 @@
+--- a/drivers/video/msm/msm_fb.c
++++ b/drivers/video/msm/msm_fb.c
+@@ -978,6 +978,9 @@
+ 	}
+ 
+ 	fb->screen_base = fbram;
++	/* Видеопамять после WinMo содержит мусор («зебра»), видимый всю раннюю
++	 * загрузку. Гасим её в чёрный сразу, как только буфер отображён. */
++	memset(fbram, 0, resource_size);
+ 	return 0;
+ }
+ 
