@@ -637,3 +637,28 @@ mail (IMAP/SMTP на stdlib, настройки /root/.mailrc, нужен пар
 приложения), gallery (Pillow+ImageTk, /root/Pictures и карта),
 game2048 (свайпы), torch (фонарик — светодиод вспышки flashlight).
 Всего 22 плитки. Камера невозможна: нет драйвера в ядре.
+
+### КАМЕРА РАБОТАЕТ (01.09) — ради неё всё и делалось
+
+Первое фото с HTC HD2 под Linux. Стек написан с нуля, без закрытых
+библиотек Qualcomm (обычно нужна libmmcamera):
+- драйверы в ядре 3.0 БЫЛИ (msm_camera v1, VFE8x, s5k3e2fx) и даже
+  собраны — не было /dev-узлов (udev мёртв; mknod 245:0-2 в ui.start)
+  и всего userspace;
+- out/camtest.c — проба тракта: сенсор отвечает по I2C (module v1);
+- out/camsnap.c — снимок: pmem-буферы (REGISTER_PMEM, RAW_MAINIMG),
+  сенсор SET_MODE + CFG_SET_PICT_EXP_GAIN (без него темно), VFE:
+  RESET -> CAMIF_CONFIG -> AXI (CMD_RAW_PICT_AXI_CFG) -> START -> STOP.
+  Кадр 1296x972 Bayer GRBG 8 бит появляется в pmem, ядро само
+  подставляет физадреса буферов.
+- camera-app + плитка: снимок -> дебайер numpy (серый мир, гамма) ->
+  /root/Pictures (галерея видит).
+
+Грабли: DISABLE_VFE роняет ядро (NULL в msm_camio_disable) — не звать;
+AXI ждёт ДВОЙНУЮ обёртку (cfg_cmd->command_8k->структура);
+имена/ширины в СЫРЫХ ПИКСЕЛЯХ (ядро само делит на пикс/слово), 10-бит
+запрошенный ядром принудительно становится 8-бит; CAMIF-кадр задавать
+С ГАШЕНИЕМ (0x342/0x340: 2732x994 для превью); сборка юзерспейса —
+в chroot pmbootstrap с -DCONFIG_720P_CAMERA (иначе не те номера команд).
+Полный кадр 2608x1960 упирается в размер pmem_adsp (~16М < 3 слотов) —
+задел на будущее: поднять размер pmem в board-htcleo.c.

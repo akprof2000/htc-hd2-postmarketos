@@ -18,6 +18,7 @@ TILE_H = 118
 TILES = [
     ("☎", "Телефон",     "#1f7a33", "/usr/local/bin/phone-gui"),
     ("✉", "СМС",         "#0a6ebd", "/usr/local/bin/phone-sms"),
+    ("📷", "Камера",      "#8a2b5a", "/usr/local/bin/camera-app"),
     ("♫", "Медиа",       "#7a4b8a", "/usr/local/bin/media"),
     ("▦", "Приложения",  "#2e6a5a", "/usr/local/bin/taskmgr"),
     ("=", "Калькулятор", "#8a5a2e", "/usr/local/bin/calc"),
