@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/file.h>
+#include <time.h>
 
 #define __user
 #include "msm_camera.h"
@@ -170,12 +171,41 @@ int main(int argc, char **argv)
 	struct vfe_cmd_start st;
 	memset(&st, 0, sizeof(st));
 	st.inputSource = VFE_START_INPUT_SOURCE_CAMIF;
-	st.operationMode = VFE_START_OPERATION_MODE_SNAPSHOT;
+	/* превью/видео — непрерывный режим: в SNAPSHOT буфер обновляется
+	 * ровно один раз и картинка застывает */
+	st.operationMode = vidsec ? VFE_START_OPERATION_MODE_CONTINUOUS
+				  : VFE_START_OPERATION_MODE_SNAPSHOT;
 	st.snapshotCount = 1;
 	st.pixel = VFE_BAYER_GRGRGR;
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)
 		printf("VFE START (снимок)\n");
 
+	if (vidsec < 0) {
+		/* превью: бесконечно обновляем один файл, пока живём.
+		 * Пишем во временный и переименовываем — читатель никогда
+		 * не увидит полукадр. */
+		int limit = -vidsec;
+		time_t t0 = time(NULL);
+		printf("превью запущено\n");
+		while (time(NULL) - t0 < limit) {
+			/* уменьшаем прямо здесь: каждый 4-й пиксель,
+			 * 324x243 = 78 КБ вместо 1.2 МБ — телефону легче */
+			static uint8_t small[(W / 4) * (H / 4)];
+			const uint8_t *src = buf + fsz;
+			for (int y = 0; y < H / 4; y++)
+				for (int x = 0; x < W / 4; x++)
+					small[y * (W / 4) + x] =
+						src[(y * 4) * W + x * 4];
+			FILE *f = fopen("/tmp/preview.tmp", "wb");
+			if (f) {
+				fwrite(small, 1, sizeof(small), f);
+				fclose(f);
+				rename("/tmp/preview.tmp", "/tmp/preview.raw");
+			}
+			usleep(500000);
+		}
+		printf("превью завершено\n");
+	}
 	if (vidsec > 0) {
 		/* видео: копируем живой буфер каждые 400 мс */
 		system("mkdir -p /tmp/vid; rm -f /tmp/vid/f*.raw");

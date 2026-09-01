@@ -161,8 +161,10 @@ class Camera:
         root.geometry("480x776+0+24")
         os.makedirs(OUT, exist_ok=True)
 
-        self.view = tk.Label(root, text="HTC HD2 · 5 Мп",
-                             font=("DejaVu Sans", 14), bg="#000000", fg=DIM)
+        self.view = tk.Label(
+            root, text="HTC HD2 · 5 Мп — нажмите «Снимок», снимок появится здесь (живое превью недоступно: драйвер камеры не переживает поток кадров)",
+            font=("DejaVu Sans", 12), bg="#000000", fg=DIM,
+            wraplength=420, justify="center")
         self.view.pack(expand=True, fill="both", padx=6, pady=6)
 
         self.status = tk.Label(root, text="готова", font=("DejaVu Sans", 11),
