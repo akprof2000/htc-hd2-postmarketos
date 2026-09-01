@@ -7,6 +7,7 @@
  * msm_vfe8x.h рядом).
  */
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
@@ -14,6 +15,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 
 #define __user
 #include "msm_camera.h"
@@ -37,9 +39,21 @@ static int vfe_cmd(int id, void *val, int len)
 	return 0;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+	/* camsnap [gain] [line] — экспозиция сенсора */
+	int gain = argc > 1 ? atoi(argv[1]) : 120;
+	int line = argc > 2 ? atoi(argv[2]) : 1500;
 	setvbuf(stdout, NULL, _IONBF, 0);
+
+	/* камера строго однопользовательская: второй экземпляр стека
+	 * параллельно с первым роняет ядро */
+	int lockfd = open("/tmp/.camsnap.lock", O_CREAT | O_RDWR, 0644);
+	if (lockfd < 0 || flock(lockfd, LOCK_EX | LOCK_NB) < 0) {
+		printf("камера занята другим процессом
+");
+		return 2;
+	}
 
 	ctrl = open("/dev/msm_camera/control0", O_RDWR);
 	cfg = open("/dev/msm_camera/config0", O_RDWR);
@@ -91,13 +105,13 @@ int main(void)
 		printf("SENSOR SET_MODE: %s (продолжаем)\n", strerror(errno));
 	else
 		printf("сенсор: полнокадровый режим\n");
-	sleep(1);
+	usleep(300000);
 
 	/* выдержка/усиление: без них сенсор снимает на минимуме — темно */
 	memset(&sc, 0, sizeof(sc));
 	sc.cfgtype = CFG_SET_PICT_EXP_GAIN;
-	sc.cfg.exp_gain.gain = 120;
-	sc.cfg.exp_gain.line = 1500;
+	sc.cfg.exp_gain.gain = gain;
+	sc.cfg.exp_gain.line = line;
 	if (ioctl(cfg, MSM_CAM_IOCTL_SENSOR_IO_CFG, &sc) < 0)
 		printf("EXP_GAIN: %s (продолжаем)\n", strerror(errno));
 	else
@@ -161,7 +175,7 @@ int main(void)
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)
 		printf("VFE START (снимок)\n");
 
-	sleep(3);
+	sleep(2);
 
 	/* заморозить кадр перед чтением */
 	if (vfe_cmd(VFE_CMD_ID_STOP, NULL, 0) == 0)

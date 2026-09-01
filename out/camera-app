@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Камера HTC HD2: снимок → проявка → показ → /root/Pictures.
+"""Камера HTC HD2 — полнофункциональная.
 
-Захват — camsnap (наш RAW-стек s5k3e2fx+VFE8x), проявка — numpy:
-дебайер GRBG, баланс белого «серый мир», гамма.
+Режимы: Авто (автоэкспозиция + автовспышка), Ночь (3 кадра со сложением
+и выравниванием — шумодав/антивибрация), HDR (две экспозиции).
+Фильтры, таймер, вспышка Авто/Вкл/Выкл. Снимки — в /root/Pictures.
+
+Захват — camsnap <gain> <line> (наш RAW-стек s5k3e2fx+VFE8x).
 """
 import fcntl
 import os
@@ -11,72 +14,235 @@ import threading
 import time
 import tkinter as tk
 
-BG, FG, DIM = "#101828", "#e8eef5", "#7c8794"
+import numpy as np
+from PIL import Image, ImageEnhance, ImageFilter, ImageTk
+
+BG, FG, DIM, KEY = "#101828", "#e8eef5", "#7c8794", "#1c2a40"
+ACC, WARN, RED = "#1f7a33", "#8a5a2e", "#a4262c"
 OUT = "/root/Pictures"
+TORCH = "/sys/class/leds/flashlight/brightness"
+W, H = 1296, 972
+
+MODES = ["Авто", "Ночь", "HDR"]
+FLASH = ["Авто", "Вкл", "Выкл"]
+FILTERS = ["Без фильтра", "Ч/Б", "Сепия", "Яркий", "Мягкий"]
+TIMERS = [0, 3, 10]
 
 
-def develop(rawfile, outfile):
-    import numpy as np
-    from PIL import Image
-    W, H = 1296, 972
-    d = np.fromfile(rawfile, dtype=np.uint8)
-    g = d[:W * H].reshape(H, W).astype(np.float32)
+# ── захват и проявка ─────────────────────────────────────────────────
+def torch(on):
+    try:
+        with open(TORCH, "w") as f:
+            f.write("128" if on else "0")
+    except OSError:
+        pass
+
+
+def capture(gain, line):
+    """Один RAW-кадр -> массив HxW (Bayer)."""
+    subprocess.run(["/usr/local/bin/camsnap", str(int(gain)),
+                    str(int(line))], capture_output=True, timeout=60)
+    d = np.fromfile("/tmp/raw1.bin", dtype=np.uint8)
+    return d[:W * H].reshape(H, W).astype(np.float32)
+
+
+def debayer(g):
+    """GRBG -> RGB float 0..1 с балансом белого «серый мир»."""
     G1 = g[0::2, 0::2]; R = g[0::2, 1::2]
     B = g[1::2, 0::2]; G2 = g[1::2, 1::2]
     G = (G1 + G2) / 2
-    # серый мир: выровнять средние каналов
     m = (R.mean() + G.mean() + B.mean()) / 3
     rgb = np.dstack([R * (m / max(R.mean(), 1)), G,
                      B * (m / max(B.mean(), 1))])
-    rgb = np.clip(rgb / max(rgb.max(), 1), 0, 1) ** (1 / 2.2) * 255
-    img = Image.fromarray(rgb.astype("uint8"))
-    img.save(outfile, quality=92)
+    return np.clip(rgb / max(rgb.max(), 1), 0, 1)
+
+
+def align(base, other):
+    """Сдвиг кадра по фазовой корреляции (антивибрация)."""
+    a = base[::4, ::4]; b = other[::4, ::4]
+    f = np.fft.rfft2(a) * np.conj(np.fft.rfft2(b))
+    c = np.fft.irfft2(f / (np.abs(f) + 1e-6))
+    dy, dx = np.unravel_index(np.argmax(c), c.shape)
+    if dy > a.shape[0] // 2:
+        dy -= a.shape[0]
+    if dx > a.shape[1] // 2:
+        dx -= a.shape[1]
+    return np.roll(other, (dy * 4, dx * 4), axis=(0, 1))
+
+
+def measure(gain, line):
+    g = capture(gain, line)
+    return g, float(g.mean())
+
+
+def shoot_auto(flash_mode, log):
+    """Автоэкспозиция: замер -> подстройка -> кадр; автовспышка."""
+    log("замер экспозиции…")
+    g, m = measure(60, 400)
+    target = 80.0
+    f = target / max(m, 2.0)
+    line = min(max(400 * f, 100), 2800)
+    gain = 60.0
+    if line >= 2800 and f > 7:            # темно даже на максимуме
+        gain = min(60 * f * 400 / 2800, 250)
+    use_flash = flash_mode == "Вкл" or (flash_mode == "Авто" and m < 12)
+    if use_flash:
+        log("темно — вспышка")
+        torch(True)
+    log("снимок (усиление %d, выдержка %d)…" % (gain, line))
+    try:
+        g = capture(gain, line)
+    finally:
+        torch(False)
+    return debayer(g)
+
+
+def shoot_night(log):
+    """3 кадра, выравнивание, среднее: меньше шума и смаза."""
+    frames = []
+    for i in range(3):
+        log("ночной режим: кадр %d/3…" % (i + 1))
+        frames.append(capture(180, 2800))
+    log("складываю кадры…")
+    base = frames[0]
+    acc = base.copy()
+    for fr in frames[1:]:
+        acc += align(base, fr)
+    return debayer(acc / 3)
+
+
+def shoot_hdr(log):
+    """Две экспозиции, слияние по яркости."""
+    log("HDR: тёмный кадр…")
+    lo = debayer(capture(60, 350))
+    log("HDR: светлый кадр…")
+    hi = debayer(capture(150, 2400))
+    lum = hi.mean(axis=2, keepdims=True)
+    w = np.clip((lum - 0.55) * 6, 0, 1)   # пересветы берём из тёмного
+    return hi * (1 - w) + lo * w
+
+
+def apply_filter(img, name):
+    if name == "Ч/Б":
+        return img.convert("L").convert("RGB")
+    if name == "Сепия":
+        g = np.asarray(img.convert("L"), dtype=np.float32)
+        return Image.fromarray(np.clip(np.dstack(
+            [g * 1.07, g * 0.74, g * 0.43]), 0, 255).astype("uint8"))
+    if name == "Яркий":
+        img = ImageEnhance.Color(img).enhance(1.5)
+        return ImageEnhance.Contrast(img).enhance(1.15)
+    if name == "Мягкий":
+        blur = img.filter(ImageFilter.GaussianBlur(3))
+        return Image.blend(img, blur, 0.45)
     return img
 
 
+def finish(rgb, filt):
+    rgb = np.clip(rgb, 0, 1) ** (1 / 2.2) * 255
+    img = Image.fromarray(rgb.astype("uint8"))
+    img = img.filter(ImageFilter.UnsharpMask(2, 60, 3))   # лёгкая резкость
+    return apply_filter(img, filt)
+
+
+# ── интерфейс ────────────────────────────────────────────────────────
 class Camera:
     def __init__(self, root):
         self.root = root
+        self.mode = 0
+        self.flash = 0
+        self.filt = 0
+        self.timer = 0
+        self.photo = None
         root.title("Камера")
         root.configure(bg=BG)
         root.geometry("480x740+0+0")
         os.makedirs(OUT, exist_ok=True)
 
-        self.view = tk.Label(root, text="нажмите «Снимок»",
+        self.view = tk.Label(root, text="HTC HD2 · 5 Мп",
                              font=("DejaVu Sans", 14), bg="#000000", fg=DIM)
-        self.view.pack(expand=True, fill="both", padx=8, pady=8)
+        self.view.pack(expand=True, fill="both", padx=6, pady=6)
+
+        self.status = tk.Label(root, text="готова", font=("DejaVu Sans", 11),
+                               bg=BG, fg=DIM)
+        self.status.pack(fill="x")
+
+        row = tk.Frame(root, bg=BG)
+        row.pack(fill="x", padx=6, pady=4)
+        self.b_mode = self.mk(row, self.cyc_mode)
+        self.b_flash = self.mk(row, self.cyc_flash)
+        self.b_filt = self.mk(row, self.cyc_filt)
+        self.b_timer = self.mk(row, self.cyc_timer)
+        self.labels()
 
         self.btn = tk.Button(root, text="📷  Снимок",
-                             font=("DejaVu Sans", 17, "bold"), bg="#1f7a33",
+                             font=("DejaVu Sans", 17, "bold"), bg=ACC,
                              fg="white", relief="flat", bd=0, height=3,
                              command=self.shoot)
-        self.btn.pack(fill="x", padx=16, pady=(0, 14))
+        self.btn.pack(fill="x", padx=12, pady=(4, 12))
         root.after(300, lambda: root.geometry("480x740+0+0"))
-        self.photo = None
+
+    def mk(self, parent, cmd):
+        b = tk.Button(parent, text="", font=("DejaVu Sans", 11, "bold"),
+                      bg=KEY, fg=FG, relief="flat", bd=0, height=2,
+                      wraplength=104, command=cmd)
+        b.pack(side="left", expand=True, fill="both", padx=2)
+        return b
+
+    def labels(self):
+        self.b_mode.config(text="Режим:\n" + MODES[self.mode])
+        self.b_flash.config(text="Вспышка:\n" + FLASH[self.flash])
+        self.b_filt.config(text=FILTERS[self.filt])
+        self.b_timer.config(text="Таймер:\n%d с" % TIMERS[self.timer])
+
+    def cyc_mode(self):
+        self.mode = (self.mode + 1) % len(MODES); self.labels()
+
+    def cyc_flash(self):
+        self.flash = (self.flash + 1) % len(FLASH); self.labels()
+
+    def cyc_filt(self):
+        self.filt = (self.filt + 1) % len(FILTERS); self.labels()
+
+    def cyc_timer(self):
+        self.timer = (self.timer + 1) % len(TIMERS); self.labels()
+
+    def log(self, txt):
+        self.root.after(0, lambda: self.status.config(text=txt))
 
     def shoot(self):
-        self.btn.config(text="снимаю… ~10 с", bg="#8a5a2e", state="disabled")
+        self.btn.config(state="disabled", bg=WARN, text="съёмка…")
         threading.Thread(target=self.work, daemon=True).start()
 
     def work(self):
         try:
-            r = subprocess.run(["/usr/local/bin/camsnap"],
-                               capture_output=True, text=True, timeout=60)
-            if "сохранены" not in r.stdout:
-                raise RuntimeError(r.stdout.strip()[-80:] or "нет данных")
-            name = os.path.join(OUT, time.strftime("photo-%Y%m%d-%H%M%S.jpg"))
-            img = develop("/tmp/raw1.bin", name)
-            img.thumbnail((464, 620))
-            from PIL import ImageTk
-            self.photo = ImageTk.PhotoImage(img)
+            for t in range(TIMERS[self.timer], 0, -1):
+                self.log("таймер: %d…" % t)
+                time.sleep(1)
+            mode = MODES[self.mode]
+            if mode == "Ночь":
+                rgb = shoot_night(self.log)
+            elif mode == "HDR":
+                rgb = shoot_hdr(self.log)
+            else:
+                rgb = shoot_auto(FLASH[self.flash], self.log)
+            self.log("проявка…")
+            img = finish(rgb, FILTERS[self.filt])
+            name = os.path.join(OUT,
+                                time.strftime("photo-%Y%m%d-%H%M%S.jpg"))
+            img.save(name, quality=92)
+            small = img.copy()
+            small.thumbnail((464, 560))
+            self.photo = ImageTk.PhotoImage(small)
             self.root.after(0, lambda: (
                 self.view.config(image=self.photo, text=""),
-                self.btn.config(text="📷  Снимок (сохранено)",
-                                bg="#1f7a33", state="normal")))
+                self.status.config(text="сохранено: " +
+                                   os.path.basename(name)),
+                self.btn.config(state="normal", bg=ACC, text="📷  Снимок")))
         except Exception as e:
-            self.root.after(0, lambda: self.btn.config(
-                text="ошибка: %s" % str(e)[:40], bg="#a4262c",
-                state="normal"))
+            self.root.after(0, lambda: (
+                self.status.config(text="ошибка: %s" % str(e)[:60]),
+                self.btn.config(state="normal", bg=RED, text="📷  Снимок")))
 
 
 if __name__ == "__main__":
