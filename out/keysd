@@ -131,8 +131,63 @@ def kbd_watcher():
             subprocess.run(["pkill", "-f", "bin/rukbd"], stdout=subprocess.DEVNULL)
 
 
+def touch_sleep():
+    """Автосон: 2 мин без касаний — подсветка гаснет; касание будит.
+    Пока экран тёмный, тач захвачен (EVIOCGRAB) — пробуждающий тап
+    не нажимает ничего в интерфейсе."""
+    import fcntl
+    import select as sel
+    EVIOCGRAB = (1 << 30) | (4 << 16) | (ord('E') << 8) | 0x90
+    try:
+        f = open("/dev/input/event0", "rb")
+    except OSError:
+        return
+    last = time.monotonic()
+    dark = False
+    while True:
+        r, _, _ = sel.select([f], [], [], 5.0)
+        if r:
+            try:
+                f.read(16)
+            except OSError:
+                pass
+            last = time.monotonic()
+            if dark:                     # проснуться
+                try:
+                    with open(BL, "w") as b:
+                        b.write("180")
+                except OSError:
+                    pass
+                try:
+                    fcntl.ioctl(f, EVIOCGRAB, 0)
+                except OSError:
+                    pass
+                dark = False
+        else:
+            try:
+                lit = int(open(BL).read()) > 0
+            except (OSError, ValueError):
+                lit = False
+            if lit and not dark and \
+                    time.monotonic() - last > 120 and state() == "idle":
+                try:
+                    with open(BL, "w") as b:
+                        b.write("0")
+                    fcntl.ioctl(f, EVIOCGRAB, 1)
+                    dark = True
+                except OSError:
+                    pass
+            if not lit and not dark:     # погасили красной кнопкой
+                dark = True
+                try:
+                    fcntl.ioctl(f, EVIOCGRAB, 1)
+                except OSError:
+                    pass
+
+
 def main():
     threading.Thread(target=kbd_watcher, daemon=True).start()
+    threading.Thread(target=touch_sleep, daemon=True).start()
     f = open(DEV, "rb")
     # эксклюзивный захват: иначе X тоже видит кнопки, и, например, меню
     # от кнопки Windows открывается нами и тут же закрывается X-ом

@@ -27,10 +27,12 @@ set -x 2>&9
 				sleep 3
 			done
 		}
+		xset s off -dpms 2>/dev/null
 		respawn icewm &
 		sleep 3
 		respawn /usr/local/bin/home &
 		respawn /usr/local/bin/keysd &
+		respawn /usr/local/bin/statusbar &
 		setsid /usr/local/bin/xwatchd </dev/null >/dev/null 2>&1 &
 		exec sleep 2147483647
 	' </dev/null >/var/log/ui.log 2>&1 &

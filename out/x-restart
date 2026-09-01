@@ -14,6 +14,7 @@ setsid sh -c 'PIXMAN_DISABLE=arm-neon exec /usr/libexec/Xorg :0 vt1' </dev/null 
 i=0
 while [ ! -S /tmp/.X11-unix/X0 ] && [ $i -lt 30 ]; do i=$((i+1)); sleep 1; done
 export DISPLAY=:0
+DISPLAY=:0 xset s off -dpms 2>/dev/null
 setsid icewm </dev/null >/dev/null 2>&1 &
 sleep 3
 sleep 3
