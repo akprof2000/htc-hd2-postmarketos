@@ -54,10 +54,6 @@ class Phone:
         root.geometry("480x776+0+24")
 
         # ── постоянный индикатор сети (как в смартфонах) ──────────────
-        self.netbar = tk.Label(root, text="", font=("DejaVu Sans", 11),
-                               bg=BG, fg=DIM, anchor="e", padx=12)
-        self.netbar.pack(fill="x", pady=(4, 0))
-
         # ── строка состояния ──────────────────────────────────────────
         self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
                                bg=BG, fg=DIM, anchor="w", padx=12)
@@ -257,9 +253,7 @@ class Phone:
         if st != self.state:
             self.state = st
             self.on_state()
-        line = self.net_line()
-        weak = (read("csq") or "9").isdigit() and int(read("csq") or 9) <= 2
-        self.netbar.config(text=line, fg="#ef9a9a" if weak else DIM)
+        # сеть показывает статус-полоска сверху — здесь не дублируем
         self.refresh()
         self.root.after(700, self.tick)
 

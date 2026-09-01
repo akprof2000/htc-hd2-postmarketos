@@ -84,6 +84,7 @@ class Shade:
             ("wifi", "Wi-Fi", self.t_wifi),
             ("torch", "Фонарик", self.t_torch),
             ("mute", "Звук", self.t_mute),
+            ("bt", "Bluetooth", self.t_bt),
             ("2g", "2G", lambda: (at('AT+COPS=1,2,"25002",0'),
                                   self.mark("2g"))),
             ("3g", "3G", lambda: (at("AT+COPS=0"), self.mark("3g"))),
@@ -143,6 +144,10 @@ class Shade:
         self.tiles["mute"].config(
             bg=KEY if vol == "0" else ACC,
             text="Тихо" if vol == "0" else "Звук")
+        try:
+            self.tiles["bt"].config(bg=ACC if self.bt_on() else KEY)
+        except (KeyError, OSError):
+            pass
         net = read("/run/phone/net", "")
         self.tiles["2g"].config(bg=ACC if net.startswith(("EDGE", "GSM"))
                                 else KEY)
@@ -158,6 +163,17 @@ class Shade:
         else:
             sh("ifconfig wlan0 up")
         self.root.after(2500, self.paint)
+
+    def bt_on(self):
+        return "UP RUNNING" in subprocess.run(
+            ["hciconfig", "hci0"], capture_output=True, text=True).stdout
+
+    def t_bt(self):
+        if self.bt_on():
+            sh("hciconfig hci0 down; echo 0 > /sys/class/rfkill/rfkill0/state")
+        else:
+            sh("/usr/local/bin/btsetup")     # заливка прошивки, ~20 с
+        self.root.after(4000, self.paint)
 
     def t_torch(self):
         sh("/usr/local/bin/torch")

@@ -6,6 +6,7 @@ HCI: hcitool на этом чипе не работает), попытка со�
 Кнопки — Label с bind: tk.Button на этом X рисуется пустым.
 """
 import fcntl
+import glob
 import os
 import subprocess
 import threading
@@ -54,10 +55,10 @@ class BtApp:
         root.geometry("480x776+0+24")
 
         tk.Label(root, text="Bluetooth", font=("DejaVu Sans", 18, "bold"),
-                 bg=BG, fg=FG).pack(pady=(10, 4))
+                 bg=BG, fg=FG).pack(pady=(14, 4))
         self.status = tk.Label(root, text="проверяю…",
                                font=("DejaVu Sans", 11), bg=BG, fg=DIM,
-                               justify="left")
+                               justify="center", wraplength=450)
         self.status.pack(pady=(0, 6))
 
         row = tk.Frame(root, bg=BG)
@@ -155,9 +156,54 @@ class BtApp:
                 continue
             addr, rssi = parts[0], parts[1]
             name = parts[2].replace("дБм", "").strip()
-            self.note("%s\n%s · сигнал %s дБм" % (name or "(без имени)",
-                                                  addr, rssi),
-                      lambda a=addr: self.connect(a))
+            self.device_row(name or "(без имени)", addr, rssi)
+
+    def device_row(self, name, addr, rssi):
+        box = tk.Frame(self.list, bg="#182238")
+        box.pack(fill="x", pady=3)
+        cap = "%s\n%s · сигнал %s дБм" % (name, addr, rssi)
+        tk.Label(box, text=cap,
+                 font=("DejaVu Sans", 12), bg="#182238", fg=FG, anchor="w",
+                 justify="left", padx=12, pady=8).pack(fill="x")
+        row = tk.Frame(box, bg="#182238")
+        row.pack(fill="x", padx=8, pady=(0, 8))
+        for text, cb in (("Сопрячь", lambda a=addr: self.pair(a)),
+                         ("Отправить фото",
+                          lambda a=addr: self.send_photo(a))):
+            b = tk.Label(row, text=text, font=("DejaVu Sans", 12, "bold"),
+                         bg=KEY, fg="white", pady=10)
+            b.pack(side="left", expand=True, fill="x", padx=3)
+            b.bind("<Button-1>", lambda _e, c=cb: (buzz(), c()))
+
+    def pair(self, addr):
+        self.status.config(text="сопрягаюсь с %s (PIN 0000)…" % addr)
+
+        def work():
+            out = sh("/usr/local/bin/btpair %s 0000" % addr, 90)
+            ok = "СОПРЯЖЕНО" in out
+            self.root.after(0, lambda: self.status.config(
+                text="сопряжено: %s" % addr if ok
+                else "не сопряглось: " + out.strip().splitlines()[-1][:50]
+                if out.strip() else "устройство не ответило"))
+        threading.Thread(target=work, daemon=True).start()
+
+    def send_photo(self, addr):
+        pics = sorted(glob.glob("/root/Pictures/*.jpg"))
+        if not pics:
+            self.status.config(text="нет снимков в /root/Pictures")
+            return
+        f = pics[-1]
+        self.status.config(text="отправляю %s…" % os.path.basename(f))
+
+        def work():
+            out = sh("/usr/local/bin/btsend %s '%s'" % (addr, f), 180)
+            ok = "ПЕРЕДАН" in out
+            self.root.after(0, lambda: self.status.config(
+                text="файл передан!" if ok
+                else "не отправилось: " +
+                     (out.strip().splitlines()[-1][:50] if out.strip()
+                      else "нет ответа")))
+        threading.Thread(target=work, daemon=True).start()
 
     def connect(self, addr):
         self.status.config(text="пробую соединиться с %s…" % addr)

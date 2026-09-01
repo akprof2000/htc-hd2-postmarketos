@@ -244,4 +244,11 @@ def main():
 
 
 if __name__ == "__main__":
+    # единственный экземпляр: два сторожа наперегонки мигают клавиатурой
+    import fcntl as _f
+    _lock = open("/tmp/.keysd.lock", "w")
+    try:
+        _f.flock(_lock, _f.LOCK_EX | _f.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
     main()

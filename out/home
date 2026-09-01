@@ -36,8 +36,6 @@ TILES = [
     ("▤", "Файлы",       "#6b5b2e", "xfe"),
     ("⌨", "Клава",       "#5133b8", "/usr/local/bin/kbd"),
     ("@", "Браузер",     "#7a2b4b", "dillo"),
-    ("☀", "Ярче",        "#217a6b", "/usr/local/bin/backlight +"),
-    ("☾", "Темнее",      "#1b4a5e", "/usr/local/bin/backlight -"),
     ("⏻", "Питание",     "#5d3a3a", "/usr/local/bin/powermenu"),
     ("↻", "Графика",     "#5d5d3a", "/usr/local/bin/x-restart"),
 ]

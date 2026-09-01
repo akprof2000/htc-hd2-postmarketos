@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Сопряжение Bluetooth для HTC HD2 — напрямую по HCI.
+
+BlueZ-агента на ядре 3.0 нет (mgmt-интерфейс отсутствует), поэтому
+PIN-код и подтверждение обрабатываем сами: слушаем события контроллера
+и отвечаем нужными командами.
+
+    btpair <MAC> [PIN]     — сопрячься (по умолчанию PIN 0000)
+
+Ключ связи сохраняется контроллером; после успеха устройство можно
+использовать (передача файлов и т.п.).
+"""
+import socket
+import struct
+import sys
+import time
+
+AF_BLUETOOTH, BTPROTO_HCI, HCI_FILTER = 31, 1, 2
+
+EVT_CONN_COMPLETE = 0x03
+EVT_AUTH_COMPLETE = 0x06
+EVT_PIN_CODE_REQ = 0x16
+EVT_LINK_KEY_REQ = 0x17
+EVT_LINK_KEY_NOTIFY = 0x18
+EVT_IO_CAP_REQ = 0x31
+EVT_USER_CONFIRM_REQ = 0x33
+EVT_SIMPLE_PAIR_COMPLETE = 0x36
+EVT_CMD_STATUS = 0x0f
+EVT_CMD_COMPLETE = 0x0e
+
+OGF_LINK_CTL = 0x01
+OCF_CREATE_CONN = 0x0005
+OCF_AUTH_REQ = 0x0011
+OCF_PIN_REPLY = 0x000d
+OCF_LINK_KEY_NEG = 0x000c
+OCF_IO_CAP_REPLY = 0x002b
+OCF_USER_CONFIRM_REPLY = 0x002c
+OCF_DISCONNECT = 0x0006
+
+
+def op(ogf, ocf):
+    return (ogf << 10) | ocf
+
+
+def send(s, ogf, ocf, payload=b""):
+    s.send(struct.pack("<BHB", 0x01, op(ogf, ocf), len(payload)) + payload)
+
+
+def addr_bytes(mac):
+    return bytes(int(x, 16) for x in mac.split(":"))[::-1]
+
+
+def mac_str(raw):
+    return ":".join("%02X" % b for b in raw[::-1])
+
+
+def pair(mac, pin="0000", timeout=40):
+    dst = addr_bytes(mac)
+    s = socket.socket(AF_BLUETOOTH, socket.SOCK_RAW, BTPROTO_HCI)
+    s.setsockopt(0, HCI_FILTER,
+                 struct.pack("IIIH2x", 0xffffffff, 0xffffffff,
+                             0xffffffff, 0))
+    s.bind((0,))
+    s.settimeout(1.0)
+
+    # соединение: пакеты DM1/DH5, page scan repetition R2, разрешить смену роли
+    send(s, OGF_LINK_CTL, OCF_CREATE_CONN,
+         dst + struct.pack("<HBBHB", 0xcc18, 0x02, 0x00, 0x0000, 0x01))
+
+    handle = None
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            d = s.recv(300)
+        except socket.timeout:
+            continue
+        if len(d) < 3 or d[0] != 0x04:
+            continue
+        code, body = d[1], d[3:]
+
+        if code == EVT_CONN_COMPLETE and len(body) >= 9:
+            status = body[0]
+            handle = struct.unpack("<H", body[1:3])[0]
+            if status:
+                print("соединиться не удалось (код %d)" % status)
+                s.close()
+                return 1
+            print("соединение установлено, начинаю сопряжение…")
+            send(s, OGF_LINK_CTL, OCF_AUTH_REQ, struct.pack("<H", handle))
+
+        elif code == EVT_PIN_CODE_REQ:
+            print("устройство просит PIN — отправляю %s" % pin)
+            p = pin.encode()[:16]
+            send(s, OGF_LINK_CTL, OCF_PIN_REPLY,
+                 dst + bytes([len(p)]) + p + b"\x00" * (16 - len(p)))
+
+        elif code == EVT_LINK_KEY_REQ:
+            # ключа ещё нет — отвечаем «нет», это запустит запрос PIN
+            send(s, OGF_LINK_CTL, OCF_LINK_KEY_NEG, dst)
+
+        elif code == EVT_IO_CAP_REQ:
+            # нет экрана/клавиатуры для ввода: NoInputNoOutput, без MITM
+            send(s, OGF_LINK_CTL, OCF_IO_CAP_REPLY,
+                 dst + bytes([0x03, 0x00, 0x00]))
+
+        elif code == EVT_USER_CONFIRM_REQ:
+            print("подтверждаю сопряжение")
+            send(s, OGF_LINK_CTL, OCF_USER_CONFIRM_REPLY, dst)
+
+        elif code == EVT_LINK_KEY_NOTIFY:
+            print("ключ связи получен — устройство сопряжено")
+
+        elif code in (EVT_AUTH_COMPLETE, EVT_SIMPLE_PAIR_COMPLETE):
+            status = body[0]
+            if status == 0:
+                print("СОПРЯЖЕНО: %s" % mac)
+                if handle:
+                    send(s, OGF_LINK_CTL, OCF_DISCONNECT,
+                         struct.pack("<HB", handle, 0x13))
+                s.close()
+                return 0
+            print("сопряжение отклонено (код %d)" % status)
+            s.close()
+            return 1
+
+    print("время вышло — устройство не ответило")
+    s.close()
+    return 1
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("использование: btpair <MAC> [PIN]")
+        sys.exit(2)
+    sys.exit(pair(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "0000"))

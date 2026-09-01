@@ -56,31 +56,57 @@ def main():
     root.configure(bg=BG)
     root.geometry("480x%d+0+0" % H)
 
-    left = tk.Label(root, text="", font=("DejaVu Sans", 11), bg=BG, fg=DIM,
-                    anchor="w", padx=6)
+    left = tk.Label(root, text="", font=("DejaVu Sans", 9), bg=BG, fg=DIM,
+                    anchor="w", padx=3)
     left.pack(side="left")
-    batt = tk.Label(root, text="", font=("DejaVu Sans", 11, "bold"),
-                    bg=BG, fg=DIM, anchor="e", padx=6)
+    batt = tk.Label(root, text="", font=("DejaVu Sans", 9, "bold"),
+                    bg=BG, fg=DIM, anchor="e", padx=3)
     batt.pack(side="right")
     icons = tk.Label(root, text="", font=("DejaVu Sans", 11), bg=BG,
                      fg=OK, anchor="e")
     icons.pack(side="right")
-    clock = tk.Label(root, text="", font=("DejaVu Sans", 12, "bold"),
-                     bg=BG, fg=FG)
-    clock.pack(expand=True)
+    # кнопка закрытия активного окна — красная, чтобы читалась как кнопка
+    close = tk.Label(root, text="", font=("DejaVu Sans", 11, "bold"),
+                     bg=BG, fg="white", padx=8)
+    close.pack(side="right")
+    title = tk.Label(root, text="", font=("DejaVu Sans", 11, "bold"),
+                     bg=BG, fg=FG, anchor="w")
+    title.pack(side="left", padx=(6, 0), fill="x", expand=True)
 
     def go_home(_e=None):
         subprocess.Popen("DISPLAY=:0 /usr/local/bin/shade", shell=True,
                          start_new_session=True,
                          stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
-    for w in (root, left, batt, icons, clock):
+    def close_win(_e=None):
+        subprocess.Popen(
+            "DISPLAY=:0 sh -c 'n=$(xdotool getactivewindow getwindowname "
+            "2>/dev/null); case \"$n\" in Домой|statusbar) ;; *) "
+            "wmctrl -c :ACTIVE: ;; esac'", shell=True,
+            start_new_session=True, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL)
+    close.bind("<Button-1>", close_win)
+    for w in (root, left, batt, icons, title):
         w.bind("<Button-1>", go_home)
 
     slow = {"n": 0, "wifi": False, "alarm": False}
 
     def tick():
-        clock.config(text=time.strftime("%H:%M"))
+        # заголовок активного окна — вместо убранных рамок
+        try:
+            nm = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=3,
+                env=dict(os.environ, DISPLAY=":0")).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            nm = ""
+        if nm in ("statusbar", "Домой", ""):
+            nm = ""
+        title.config(text=nm[:16])
+        if nm:
+            close.config(text=" ✕ ", bg="#a4262c")
+        else:
+            close.config(text="", bg=BG)
 
         csq = read("/run/phone/csq")
         n = min(int(csq), 5) if csq.isdigit() else 0
@@ -91,8 +117,15 @@ def main():
             slow["wifi"] = wifi_up()
             slow["alarm"] = alarm_set()
         slow["n"] += 1
-        wifi = "  W↑" if slow["wifi"] else ""
-        left.config(text="%s %s%s" % (bars, net[0] if net else "—", wifi))
+        wifi = " W" if slow["wifi"] else ""
+        # когда открыто приложение — слева только полоски, чтобы влез
+        # заголовок и кнопка «закрыть»
+        if nm:
+            left.config(text=bars)
+        else:
+            left.config(text="%s%s%s" % (bars,
+                                         (" " + net[0][:4]) if net else "",
+                                         wifi))
 
         # события: SMS, пропущенные, будильник, фонарик
         ev = []
