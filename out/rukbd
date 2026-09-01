@@ -73,11 +73,12 @@ class Kbd:
         self.key(low, "✕", self.root.destroy, w=2)
 
     def key(self, parent, label, cmd, w=1, bg=None):
-        b = tk.Button(parent, text=label, font=("DejaVu Sans", 15, "bold"),
-                      bg=bg or KEYBG, fg=FG, activebackground=ACT,
-                      relief="flat", bd=0, command=cmd)
-        b.pack(side="left", expand=True, fill="both", padx=1, pady=1,
-               ipadx=2 * w)
+        # ipadx НЕ задаём: 12 клавиш в ряду и так впритык к 480 px,
+        # ширину распределяет expand=True
+        b = tk.Label(parent, text=label, font=("DejaVu Sans", 15, "bold"),
+                     bg=bg or KEYBG, fg=FG)
+        b.pack(side="left", expand=True, fill="both", padx=1, pady=1)
+        b.bind("<Button-1>", lambda _e: cmd())
 
     def type_char(self, ch):
         send_char(ch)

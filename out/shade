@@ -120,13 +120,19 @@ class Shade:
         self.slide()
 
     def slide(self):
+        # анимация выезда; в конце — самозакрытие через 20 с бездействия
         if self.h < 780:
             self.h = min(self.h + 140, 780)
             self.root.geometry("480x%d+0+0" % self.h)
             self.root.after(25, self.slide)
+        else:
+            self.root.after(20000, self.close)
 
     def close(self):
-        self.root.destroy()
+        try:
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
     # ── тумблеры ──────────────────────────────────────────────────────
     def paint(self):
