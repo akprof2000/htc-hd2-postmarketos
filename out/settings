@@ -37,9 +37,10 @@ class Settings:
         # ── яркость ───────────────────────────────────────────────────
         self.section(body, "Яркость экрана")
         self.bright = tk.Scale(body, from_=10, to=255, orient="horizontal",
-                               bg=BG, fg=FG, troughcolor=KEY,
-                               highlightthickness=0, showvalue=False,
-                               width=28, sliderlength=48,
+                               bg=BG, fg=FG, troughcolor="#2a3a55",
+                               highlightthickness=0, showvalue=True,
+                               width=34, sliderlength=56,
+                               activebackground="#4b78c4",
                                command=self.set_bright)
         self.bright.set(int(read(BL, "180") or 180))
         self.bright.pack(fill="x", pady=(0, 8))
@@ -47,9 +48,10 @@ class Settings:
         # ── громкость ─────────────────────────────────────────────────
         self.section(body, "Громкость")
         self.vol = tk.Scale(body, from_=0, to=100, orient="horizontal",
-                            bg=BG, fg=FG, troughcolor=KEY,
-                            highlightthickness=0, showvalue=False,
-                            width=28, sliderlength=48,
+                            bg=BG, fg=FG, troughcolor="#2a3a55",
+                            highlightthickness=0, showvalue=True,
+                            width=34, sliderlength=56,
+                            activebackground="#4b78c4",
                             command=self.set_vol)
         self.vol.set(int(read("/run/phone/vol", "70") or 70))
         self.vol.pack(fill="x", pady=(0, 8))
@@ -81,7 +83,8 @@ class Settings:
 
     def toggle(self, parent, text, cmd):
         b = tk.Button(parent, text=text, font=("DejaVu Sans", 12, "bold"),
-                      bg=KEY, fg=FG, relief="flat", bd=0, height=3,
+                      bg="#2a3a55", fg="white", relief="flat", bd=0,
+                      height=3, wraplength=200,
                       command=cmd)
         b.pack(side="left", expand=True, fill="both", padx=3)
         return b
