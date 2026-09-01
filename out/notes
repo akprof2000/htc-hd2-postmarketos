@@ -13,7 +13,7 @@ def main():
     root = tk.Tk(className="notes")
     root.title("Заметки")
     root.configure(bg=BG)
-    root.geometry("480x480+0+0")   # снизу место под клавиатуру
+    root.geometry("480x470+0+24")   # снизу место под клавиатуру
 
     text = tk.Text(root, font=("DejaVu Sans", 14), bg=FIELD, fg=FG,
                    insertbackground=FG, relief="flat", wrap="word",
@@ -38,7 +38,7 @@ def main():
 
     subprocess.run(["/usr/local/bin/kbd"], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
-    root.after(300, lambda: root.geometry("480x480+0+0"))
+    root.after(300, lambda: root.geometry("480x470+0+24"))
     save()
     root.mainloop()
 

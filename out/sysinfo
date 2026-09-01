@@ -63,7 +63,7 @@ def main():
     root = tk.Tk(className="sysinfo")
     root.title("Система")
     root.configure(bg=BG)
-    root.geometry("480x740+0+0")
+    root.geometry("480x776+0+24")
     tk.Label(root, text="О системе", font=("DejaVu Sans", 18, "bold"),
              bg=BG, fg=FG).pack(pady=(16, 10))
     box = tk.Frame(root, bg=BG)
@@ -83,7 +83,7 @@ def main():
         root.after(5000, refresh)
 
     refresh()
-    root.after(300, lambda: root.geometry("480x740+0+0"))
+    root.after(300, lambda: root.geometry("480x776+0+24"))
     root.mainloop()
 
 

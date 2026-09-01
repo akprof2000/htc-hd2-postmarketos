@@ -17,7 +17,7 @@ class Cal:
         self.y, self.m = today.year, today.month
         root.title("Календарь")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         nav = tk.Frame(root, bg=BG)
         nav.pack(fill="x", pady=(12, 4))
@@ -34,7 +34,7 @@ class Cal:
         self.grid = tk.Frame(root, bg=BG)
         self.grid.pack(expand=True, fill="both", padx=8, pady=8)
         self.draw()
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
 
     def shift(self, d):
         self.m += d

@@ -29,6 +29,7 @@ TILES = [
     ("☄", "Фонарик",     "#8a8a2e", "/usr/local/bin/torch"),
     ("⛁", "2048",        "#6a2e8a", "/usr/local/bin/game2048"),
     ("№", "Календарь",   "#a4262c", "/usr/local/bin/calendar-app"),
+    ("ᛒ", "Bluetooth",   "#2a4a8a", "/usr/local/bin/btapp"),
     ("⚙", "Настройки",   "#4b5a6a", "/usr/local/bin/settings"),
     ("ℹ", "Система",     "#33415c", "/usr/local/bin/sysinfo"),
     (">_", "Терминал",   "#4a4a56", "/usr/local/bin/term-max"),
@@ -74,7 +75,7 @@ class Home:
         self.root = root
         root.title("Домой")
         root.configure(bg=BG)
-        root.geometry("480x752+0+24")
+        root.geometry("480x776+0+24")
 
         self.clock = tk.Label(root, text="", font=("DejaVu Sans", 40, "bold"),
                               bg=BG, fg=FG)
@@ -143,7 +144,7 @@ class Home:
         frame.after(60, lambda: run(cmd))
 
     def fix_place(self):
-        self.root.geometry("480x752+0+24")
+        self.root.geometry("480x776+0+24")
 
     def tick(self):
         self.clock.config(text=time.strftime("%H:%M"))

@@ -38,7 +38,7 @@ class Settings:
         self.root = root
         root.title("Настройки")
         root.configure(bg=BG)
-        root.geometry("480x752+0+24")
+        root.geometry("480x776+0+24")
 
         tk.Label(root, text="Настройки", font=("DejaVu Sans", 18, "bold"),
                  bg=BG, fg=FG).pack(pady=(10, 6))
@@ -80,7 +80,7 @@ class Settings:
                              wraplength=430)
         self.info.pack(fill="x")
         self.refresh()
-        root.after(300, lambda: root.geometry("480x752+0+24"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
 
     # ── степпер: [−]  Название: значение  [+] ─────────────────────────
     def stepper(self, name, cb):

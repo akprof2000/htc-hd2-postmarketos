@@ -46,7 +46,7 @@ class TaskMgr:
         self.root = root
         root.title("Приложения")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         tk.Label(root, text="Приложения", font=("DejaVu Sans", 18, "bold"),
                  bg=BG, fg=FG).pack(pady=(14, 2))

@@ -61,7 +61,7 @@ class Clock:
         self.root = root
         root.title("Часы")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         # ── вкладки ───────────────────────────────────────────────────
         tabs = tk.Frame(root, bg=BG)

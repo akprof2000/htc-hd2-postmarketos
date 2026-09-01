@@ -37,7 +37,7 @@ class Player:
 
         root.title("Медиа")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         self.now = tk.Label(root, text="—", font=("DejaVu Sans", 13, "bold"),
                             bg=BG, fg=FG, wraplength=440)
@@ -65,7 +65,7 @@ class Player:
                              command=self.route)
         self.out.pack(side="left", expand=True, fill="both", padx=(4, 0))
 
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
         self.watch()
 
     def sel(self):

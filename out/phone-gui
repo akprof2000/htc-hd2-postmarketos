@@ -51,7 +51,7 @@ class Phone:
 
         root.title("Телефон")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         # ── постоянный индикатор сети (как в смартфонах) ──────────────
         self.netbar = tk.Label(root, text="", font=("DejaVu Sans", 11),
@@ -144,7 +144,7 @@ class Phone:
     def fix_place(self):
         """IceWM ставит окно со сдвигом — возвращаем в левый верхний угол,
         иначе правый край уезжает за экран."""
-        self.root.geometry("480x740+0+0")
+        self.root.geometry("480x776+0+24")
 
     # ── действия ──────────────────────────────────────────────────────
     def press(self, d):

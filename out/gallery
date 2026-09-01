@@ -34,14 +34,14 @@ class Gallery:
         self.photo = None
         root.title("Галерея")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         self.cv = tk.Canvas(root, bg=BG, highlightthickness=0)
         self.cv.pack(expand=True, fill="both")
         self.cv.bind("<ButtonRelease-1>", self.tap)
         self.info = tk.Label(root, text="", font=("DejaVu Sans", 11),
                              bg=BG, fg="#9aa4b0")
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
         root.after(100, self.show)
 
     def show(self):

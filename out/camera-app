@@ -158,7 +158,7 @@ class Camera:
         self.photo = None
         root.title("Камера")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
         os.makedirs(OUT, exist_ok=True)
 
         self.view = tk.Label(root, text="HTC HD2 · 5 Мп",
@@ -189,7 +189,7 @@ class Camera:
                               fg="white", relief="flat", bd=0,
                               command=self.video)
         self.vbtn.pack(side="left", fill="both", padx=(4, 0), ipadx=10)
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
 
     def mk(self, parent, cmd):
         b = tk.Button(parent, text="", font=("DejaVu Sans", 11, "bold"),

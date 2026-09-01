@@ -11,7 +11,7 @@ class Calc:
         self.expr = ""
         root.title("Калькулятор")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         self.disp = tk.Label(root, text="0", font=("DejaVu Sans", 30, "bold"),
                              bg=BG, fg=FG, anchor="e", padx=14)
@@ -33,7 +33,7 @@ class Calc:
             grid.columnconfigure(c, weight=1)
         for r in range(5):
             grid.rowconfigure(r, weight=1)
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
         self.root = root
 
     def press(self, k):

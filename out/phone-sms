@@ -75,7 +75,7 @@ class Sms:
         self.root = root
         root.title("Сообщения")
         root.configure(bg=BG)
-        root.geometry("480x500+0+0")
+        root.geometry("480x480+0+24")
 
         tk.Label(root, text="Кому (номер)", font=("DejaVu Sans", 11),
                  bg=BG, fg=DIM, anchor="w", padx=10).pack(fill="x", pady=(8, 0))
@@ -126,7 +126,7 @@ class Sms:
     def fix_place(self):
         """IceWM ставит окно со сдвигом — возвращаем в левый верхний угол,
         иначе правый край уезжает за экран."""
-        self.root.geometry("480x500+0+0")
+        self.root.geometry("480x480+0+24")
 
     def toggle_kbd(self):
         self.kbd = not self.kbd

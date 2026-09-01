@@ -20,7 +20,7 @@ def main():
     root = tk.Tk(className="powermenu")
     root.title("Питание")
     root.configure(bg=BG)
-    root.geometry("480x740+0+0")
+    root.geometry("480x776+0+24")
     root.attributes("-topmost", True)
 
     tk.Label(root, text="Питание", font=("DejaVu Sans", 22, "bold"),
@@ -43,7 +43,7 @@ def main():
                                else (lambda c=cmd: run(c))))
         b.pack(expand=True, fill="both", pady=6)
 
-    root.after(300, lambda: root.geometry("480x740+0+0"))
+    root.after(300, lambda: root.geometry("480x776+0+24"))
     # само закроется, если про него забыли
     root.after(30000, root.destroy)
     root.mainloop()

@@ -15,7 +15,7 @@ class Game:
         self.root = root
         root.title("2048")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
+        root.geometry("480x776+0+24")
 
         self.score = 0
         self.lbl = tk.Label(root, text="", font=("DejaVu Sans", 18, "bold"),
@@ -26,13 +26,18 @@ class Game:
 
         self.grid_fr = tk.Frame(root, bg=BG)
         self.grid_fr.pack(expand=True)
+        # клетки фиксированного размера в пикселях: 4x108 + отступы = 464
         self.cells = []
         for r in range(4):
             row = []
             for c in range(4):
-                l = tk.Label(self.grid_fr, text="", width=4, height=2,
-                             font=("DejaVu Sans", 22, "bold"), fg="white")
-                l.grid(row=r, column=c, padx=4, pady=4)
+                box = tk.Frame(self.grid_fr, width=108, height=108,
+                               bg="#1c2a40")
+                box.grid(row=r, column=c, padx=3, pady=3)
+                box.grid_propagate(False)
+                l = tk.Label(box, text="", font=("DejaVu Sans", 24, "bold"),
+                             fg="white", bg="#1c2a40")
+                l.place(relx=0.5, rely=0.5, anchor="center")
                 row.append(l)
             self.cells.append(row)
 
@@ -48,7 +53,7 @@ class Game:
                 l.bind("<ButtonPress-1>", self.down)
                 l.bind("<ButtonRelease-1>", self.up)
         self.reset()
-        root.after(300, lambda: root.geometry("480x740+0+0"))
+        root.after(300, lambda: root.geometry("480x776+0+24"))
 
     def reset(self):
         self.b = [[0] * 4 for _ in range(4)]
@@ -109,10 +114,11 @@ class Game:
         for r in range(4):
             for c in range(4):
                 v = self.b[r][c]
+                color = COLORS.get(v, "#e8b93c")
                 self.cells[r][c].config(
-                    text=str(v) if v else "",
-                    bg=COLORS.get(v, "#e8b93c"),
-                    font=("DejaVu Sans", 22 if v < 1000 else 17, "bold"))
+                    text=str(v) if v else "", bg=color,
+                    font=("DejaVu Sans", 24 if v < 1000 else 18, "bold"))
+                self.cells[r][c].master.config(bg=color)
 
 
 if __name__ == "__main__":
