@@ -67,8 +67,8 @@ class Clock:
         tabs = tk.Frame(root, bg=BG)
         tabs.pack(fill="x", pady=(8, 0))
         self.tab_btns = {}
-        for name in ("Будильник", "Таймер", "Секундомер"):
-            b = tk.Button(tabs, text=name, font=("DejaVu Sans", 13, "bold"),
+        for name in ("Будильник", "Таймер", "Секунд."):
+            b = tk.Button(tabs, text=name, font=("DejaVu Sans", 11, "bold"),
                           bg=KEY, fg=FG, relief="flat", bd=0, height=2,
                           command=lambda n=name: self.show(n))
             b.pack(side="left", expand=True, fill="both", padx=2)
@@ -100,7 +100,7 @@ class Clock:
             b.config(bg=ACC if n == tab else KEY)
         self.clear()
         getattr(self, "ui_" + {"Будильник": "alarm", "Таймер": "timer",
-                               "Секундомер": "sw"}[tab])()
+                               "Секунд.": "sw"}[tab])()
 
     # ── будильник ─────────────────────────────────────────────────────
     def ui_alarm(self):
@@ -112,14 +112,16 @@ class Clock:
                                  font=("DejaVu Sans", 14), bg=BG, fg=DIM)
         self.al_state.pack()
         grid = tk.Frame(self.body, bg=BG)
-        grid.pack(pady=16)
+        grid.pack(fill="x", padx=8, pady=16)
+        for c in range(4):
+            grid.columnconfigure(c, weight=1, uniform="k")
         for col, (txt, dh, dm) in enumerate(
                 [("−1 ч", -1, 0), ("−10 м", 0, -10), ("+10 м", 0, 10),
                  ("+1 ч", 1, 0)]):
-            tk.Button(grid, text=txt, font=("DejaVu Sans", 15, "bold"),
-                      bg=KEY, fg=FG, relief="flat", bd=0, width=6, height=2,
+            tk.Button(grid, text=txt, font=("DejaVu Sans", 13, "bold"),
+                      bg=KEY, fg=FG, relief="flat", bd=0, height=2,
                       command=lambda a=dh, b=dm: self.al_adj(a, b)
-                      ).grid(row=0, column=col, padx=4)
+                      ).grid(row=0, column=col, padx=2, sticky="ew")
         self.al_btn = tk.Button(self.body, text="",
                                 font=("DejaVu Sans", 17, "bold"),
                                 fg="white", relief="flat", bd=0, height=3,
@@ -153,13 +155,15 @@ class Clock:
                               font=("DejaVu Sans", 64, "bold"), bg=BG, fg=FG)
         self.t_lbl.pack(pady=(30, 10))
         grid = tk.Frame(self.body, bg=BG)
-        grid.pack(pady=8)
+        grid.pack(fill="x", padx=8, pady=8)
+        for c in range(4):
+            grid.columnconfigure(c, weight=1, uniform="k")
         for col, (txt, sec) in enumerate([("+1 м", 60), ("+5 м", 300),
                                           ("+10 м", 600), ("Сброс", 0)]):
-            tk.Button(grid, text=txt, font=("DejaVu Sans", 15, "bold"),
-                      bg=KEY, fg=FG, relief="flat", bd=0, width=6, height=2,
+            tk.Button(grid, text=txt, font=("DejaVu Sans", 13, "bold"),
+                      bg=KEY, fg=FG, relief="flat", bd=0, height=2,
                       command=lambda s=sec: self.t_add(s)
-                      ).grid(row=0, column=col, padx=4)
+                      ).grid(row=0, column=col, padx=2, sticky="ew")
         self.t_btn = tk.Button(self.body, text="",
                                font=("DejaVu Sans", 17, "bold"), fg="white",
                                relief="flat", bd=0, height=3,
@@ -242,9 +246,9 @@ class Clock:
                 ring()
             if self.tab == "Таймер":
                 self.t_draw()
-        if self.tab == "Секундомер" and self.sw_start is not None:
+        if self.tab == "Секунд." and self.sw_start is not None:
             self.sw_draw()
-        self.root.after(1000 if self.tab != "Секундомер" else 100,
+        self.root.after(1000 if self.tab != "Секунд." else 100,
                         self.tick)
 
 

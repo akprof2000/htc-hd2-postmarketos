@@ -75,10 +75,10 @@ def main():
         for k, v in collect():
             row = tk.Frame(box, bg=KEY)
             row.pack(fill="x", pady=3)
-            tk.Label(row, text=" " + k, font=("DejaVu Sans", 12), bg=KEY,
-                     fg=DIM, width=12, anchor="w").pack(side="left", ipady=8)
-            tk.Label(row, text=v, font=("DejaVu Sans", 12, "bold"), bg=KEY,
-                     fg=FG, anchor="w", wraplength=310,
+            tk.Label(row, text=" " + k, font=("DejaVu Sans", 11), bg=KEY,
+                     fg=DIM, width=11, anchor="w").pack(side="left", ipady=8)
+            tk.Label(row, text=v, font=("DejaVu Sans", 11, "bold"), bg=KEY,
+                     fg=FG, anchor="w", wraplength=300,
                      justify="left").pack(side="left", fill="x")
         root.after(5000, refresh)
 

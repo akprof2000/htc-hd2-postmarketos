@@ -50,7 +50,8 @@ class Player:
         for f in self.files:
             self.lst.insert("end", " " + os.path.basename(f))
         if not self.files:
-            self.lst.insert("end", " нет музыки: закиньте файлы в /root/Music")
+            self.lst.insert("end", " нет музыки — закиньте файлы")
+            self.lst.insert("end", " в /root/Music или на карту")
         self.lst.bind("<Double-Button-1>", lambda e: self.play())
 
         bar = tk.Frame(root, bg=BG)

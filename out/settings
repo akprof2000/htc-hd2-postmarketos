@@ -86,16 +86,16 @@ class Settings:
     def stepper(self, name, cb):
         fr = tk.Frame(self.body, bg=BG)
         fr.pack(fill="x", pady=5)
-        minus = tk.Label(fr, text="−", font=("DejaVu Sans", 24, "bold"),
-                         bg=KEY, fg="white", width=4, pady=8)
-        minus.pack(side="left", padx=(0, 6))
+        minus = tk.Label(fr, text="−", font=("DejaVu Sans", 22, "bold"),
+                         bg=KEY, fg="white", width=3, pady=8)
+        minus.pack(side="left", padx=(0, 4))
         minus.bind("<Button-1>", lambda e: (buzz(), cb(-1)))
         val = tk.Label(fr, text=name, font=("DejaVu Sans", 14, "bold"),
                        bg=BG, fg=FG)
         val.pack(side="left", expand=True)
-        plus = tk.Label(fr, text="+", font=("DejaVu Sans", 24, "bold"),
-                        bg=KEY, fg="white", width=4, pady=8)
-        plus.pack(side="right", padx=(6, 0))
+        plus = tk.Label(fr, text="+", font=("DejaVu Sans", 22, "bold"),
+                        bg=KEY, fg="white", width=3, pady=8)
+        plus.pack(side="right", padx=(4, 0))
         plus.bind("<Button-1>", lambda e: (buzz(), cb(+1)))
         return val
 
@@ -119,8 +119,8 @@ class Settings:
         self.v_lbl.config(text="Громкость: %d%%" % self.volume)
 
     def tile(self, parent, text, cb):
-        t = tk.Label(parent, text=text, font=("DejaVu Sans", 13, "bold"),
-                     bg=KEY, fg="white", pady=14)
+        t = tk.Label(parent, text=text, font=("DejaVu Sans", 12, "bold"),
+                     bg=KEY, fg="white", pady=14, wraplength=430)
         t.pack(expand=True, fill="x")
 
         def go(_e):

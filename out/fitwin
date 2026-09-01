@@ -1,0 +1,17 @@
+#!/bin/sh
+# Запуск стороннего приложения с подгонкой окна под экран (под полоской).
+# fitwin <заголовок-фрагмент> <команда...>
+export DISPLAY=${DISPLAY:-:0}
+title="$1"; shift
+setsid "$@" </dev/null >/dev/null 2>&1 &
+i=0
+while [ $i -lt 25 ]; do
+    id=$(wmctrl -l | grep -i "$title" | head -1 | awk "{print \$1}")
+    if [ -n "$id" ]; then
+        wmctrl -i -r "$id" -e 0,0,24,480,776
+        sleep 1
+        wmctrl -i -r "$id" -e 0,0,24,480,776
+        break
+    fi
+    i=$((i+1)); sleep 1
+done

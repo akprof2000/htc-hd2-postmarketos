@@ -13,7 +13,7 @@ phone.dResize: 0
 Phone.dBorder: 0
 
 # терминал
-xfce4-terminal.geometry: 480x740+0+0
+xfce4-terminal.geometry: 480x776+0+24
 
 
 # IceMobile: служебные окна — без рамок, поверх всего, не в фокусе
@@ -30,3 +30,18 @@ rukbd.dTitleBar: 0
 rukbd.dBorder: 0
 rukbd.layer: AboveDock
 rukbd.noFocusOnMap: 1
+shade.dTitleBar: 0
+shade.dBorder: 0
+shade.layer: AboveDock
+
+# сторонние окна — ниже статус-полоски (24px)
+xfe.geometry: 480x776+0+24
+Xfe.geometry: 480x776+0+24
+xfe.dTitleBar: 0
+Xfe.dTitleBar: 0
+dillo.geometry: 480x776+0+24
+Dillo.geometry: 480x776+0+24
+dillo.dTitleBar: 0
+Dillo.dTitleBar: 0
+xfce4-terminal.geometry: 480x776+0+24
+Xfce4-terminal.geometry: 480x776+0+24

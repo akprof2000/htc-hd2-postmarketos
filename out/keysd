@@ -101,7 +101,8 @@ def volume_step(delta):
 
 
 # классы окон, где нужен ввод текста — там клавиатура показывается сама
-TYPING = ("xfce4-terminal", "phone-sms", "sms", "notes", "dillo")
+TYPING = ("xfce4-terminal", "phone-sms", "sms", "notes",
+          "dillo", "mailapp")
 
 
 def kbd_watcher():
@@ -116,6 +117,9 @@ def kbd_watcher():
                 capture_output=True, text=True, env=env,
                 timeout=5).stdout.strip().lower()
         except (OSError, subprocess.TimeoutExpired):
+            continue
+        # окна-служебки не меняют решение (иначе клавиатура мигает)
+        if any(x in cls for x in ("rukbd", "statusbar", "volosd")):
             continue
         want = any(t in cls for t in TYPING)
         if want == last:

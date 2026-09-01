@@ -170,11 +170,13 @@ class Camera:
         self.status.pack(fill="x")
 
         row = tk.Frame(root, bg=BG)
-        row.pack(fill="x", padx=6, pady=4)
+        row.pack(fill="x", padx=6, pady=(4, 0))
         self.b_mode = self.mk(row, self.cyc_mode)
         self.b_flash = self.mk(row, self.cyc_flash)
-        self.b_filt = self.mk(row, self.cyc_filt)
-        self.b_timer = self.mk(row, self.cyc_timer)
+        row_b = tk.Frame(root, bg=BG)
+        row_b.pack(fill="x", padx=6, pady=(4, 0))
+        self.b_filt = self.mk(row_b, self.cyc_filt)
+        self.b_timer = self.mk(row_b, self.cyc_timer)
         self.labels()
 
         bar = tk.Frame(root, bg=BG)
@@ -192,9 +194,9 @@ class Camera:
         root.after(300, lambda: root.geometry("480x776+0+24"))
 
     def mk(self, parent, cmd):
-        b = tk.Button(parent, text="", font=("DejaVu Sans", 11, "bold"),
+        b = tk.Button(parent, text="", font=("DejaVu Sans", 12, "bold"),
                       bg=KEY, fg=FG, relief="flat", bd=0, height=2,
-                      wraplength=104, command=cmd)
+                      wraplength=210, command=cmd)
         b.pack(side="left", expand=True, fill="both", padx=2)
         return b
 
