@@ -73,16 +73,7 @@ class Home:
         self.root = root
         root.title("Домой")
         root.configure(bg=BG)
-        root.geometry("480x740+0+0")
-
-        top = tk.Frame(root, bg=BG)
-        top.pack(fill="x", padx=16, pady=(8, 0))
-        self.sig = tk.Label(top, text="", font=("DejaVu Sans", 12),
-                            bg=BG, fg=DIM, anchor="w")
-        self.sig.pack(side="left")
-        self.batt = tk.Label(top, text="", font=("DejaVu Sans", 12),
-                             bg=BG, fg=DIM, anchor="e")
-        self.batt.pack(side="right")
+        root.geometry("480x752+0+24")
 
         self.clock = tk.Label(root, text="", font=("DejaVu Sans", 40, "bold"),
                               bg=BG, fg=FG)
@@ -151,7 +142,7 @@ class Home:
         frame.after(60, lambda: run(cmd))
 
     def fix_place(self):
-        self.root.geometry("480x740+0+0")
+        self.root.geometry("480x752+0+24")
 
     def tick(self):
         self.clock.config(text=time.strftime("%H:%M"))
@@ -159,16 +150,6 @@ class Home:
             time.strftime("%w")) - 1]
         self.date.config(text="%s · %s" % (wd, time.strftime("%d.%m.%Y")))
 
-        csq = read("/run/phone/csq")
-        n = min(int(csq), 5) if csq.isdigit() else 0
-        bars = "".join("▁▂▃▄▅"[i] if i < n else "·" for i in range(5))
-        net = read("/run/phone/net").split()
-        self.sig.config(text="%s %s" % (bars, net[0] if net else ""))
-
-        cap = read("/sys/class/power_supply/battery/capacity", "?")
-        chg = read("/sys/class/power_supply/battery/status")
-        flag = "⚡" if chg in ("Charging", "Full") else ""
-        self.batt.config(text="%s▮ %s%%" % (flag, cap))
         self.root.after(5000, self.tick)
 
 

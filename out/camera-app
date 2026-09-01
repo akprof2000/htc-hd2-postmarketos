@@ -33,7 +33,7 @@ TIMERS = [0, 3, 10]
 def torch(on):
     try:
         with open(TORCH, "w") as f:
-            f.write("128" if on else "0")
+            f.write("255" if on else "0")
     except OSError:
         pass
 
@@ -79,7 +79,7 @@ def shoot_auto(flash_mode, log):
     """Автоэкспозиция: замер -> подстройка -> кадр; автовспышка."""
     log("замер экспозиции…")
     g, m = measure(60, 400)
-    target = 80.0
+    target = 105.0
     f = target / max(m, 2.0)
     line = min(max(400 * f, 100), 2800)
     gain = 60.0
@@ -139,7 +139,9 @@ def apply_filter(img, name):
 
 
 def finish(rgb, filt):
-    rgb = np.clip(rgb, 0, 1) ** (1 / 2.2) * 255
+    # нормировка по 99-му перцентилю: одно яркое окно не топит всю сцену
+    hi = np.percentile(rgb, 99.0)
+    rgb = np.clip(rgb / max(hi, 1e-3), 0, 1) ** (1 / 2.2) * 255
     img = Image.fromarray(rgb.astype("uint8"))
     img = img.filter(ImageFilter.UnsharpMask(2, 60, 3))   # лёгкая резкость
     return apply_filter(img, filt)
