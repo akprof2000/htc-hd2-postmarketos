@@ -682,3 +682,21 @@ flock: ДВА одновременных захвата = паника ядра 
 Грабля Tk на этом X: tk.Button и tk.Scale РИСУЮТСЯ ПУСТЫМИ (текст и
 ручка не отображаются). Работают только tk.Label с bind. Настройки
 переписаны на Label-степперы и Label-плитки.
+
+### BLUETOOTH ЖИВ (01.09, вечер)
+
+BT никогда не был «стенкой» — не хватало userspace-шагов:
+1. прошивка BCM4329B1.hcd лежала как .off; hciattach ищет файл ПО ИМЕНИ,
+   которое сообщает сам чип — "BCM4329B1  Ge" (два пробела!) — нужен симлинк;
+2. заливается ТОЛЬКО на 115200 (hciattach -s 115200 ... 115200), на 3 Мбит
+   молча не грузится: признак успеха — "Flash firmware ... setup complete"
+   и Features 0xbf... вместо 0x00;
+3. CONFIG_SERIAL_BCM_BT_LPM в ядре ВЫКЛЮЧЕН -> линия BT_CHIP_WAKE (GPIO 57)
+   не поднимается; лечится вендор-командой Write_Sleep_Mode=0
+   (hcitool cmd 0x3f 0x27 x12 нулей);
+4. hcitool inq/scan НЕ РАБОТАЮТ: чип шлёт Extended Inquiry Result, но не
+   шлёт Inquiry Complete -> ioctl ядра висит. Свой сканер out/btscan
+   говорит по сырому HCI-сокету и находит устройства (проверено: -55 дБм).
+5. BlueZ 5 (bluetoothctl/bluetoothd) с ядром 3.0 не работает — нет mgmt.
+
+out/btsetup — полная последовательность подъёма, в автозапуске ui.start.

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Поднять Bluetooth на HTC HD2: питание, прошивка (только 115200!),
+# имя/класс/видимость, запрет сна чипа (LPM-драйвера в ядре нет).
+pkill hciattach 2>/dev/null
+hciconfig hci0 down 2>/dev/null
+sleep 1
+echo 0 > /sys/class/rfkill/rfkill0/state 2>/dev/null; sleep 2
+echo 1 > /sys/class/rfkill/rfkill0/state 2>/dev/null; sleep 2
+hciattach -s 115200 /dev/ttyHS0 bcm43xx 115200 flow nosleep     7c:61:93:45:4b:89 >/tmp/btattach.log 2>&1 &
+i=0
+while [ $i -lt 25 ]; do
+    grep -q 'setup complete' /tmp/btattach.log 2>/dev/null && break
+    i=$((i+1)); sleep 1
+done
+hciconfig hci0 up 2>/dev/null
+sleep 1
+hcitool -i hci0 cmd 0x3f 0x27 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00     0x00 0x00 0x00 0x00 >/dev/null 2>&1
+hciconfig hci0 name 'HTC HD2'
+hciconfig hci0 class 0x5a0204
+hciconfig hci0 piscan
+hciconfig hci0 | head -3

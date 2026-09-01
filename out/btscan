@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Поиск Bluetooth-устройств для HTC HD2 (BCM4329, ядро 3.0).
+
+Штатный hcitool не годится: чип шлёт результаты опроса, но событие
+«опрос завершён» до хоста не доходит, и ioctl ядра висит до таймаута.
+Поэтому говорим с контроллером напрямую по сырому HCI-сокету:
+сами шлём Inquiry, сами собираем ответы и запрашиваем имена.
+
+btscan [секунд]  — печатает «MAC  RSSI  имя», по строке на устройство.
+"""
+import socket
+import struct
+import sys
+import time
+
+AF_BLUETOOTH, BTPROTO_HCI = 31, 1
+HCI_FILTER = 2
+
+EVT_INQUIRY_RESULT = 0x02
+EVT_INQUIRY_RESULT_RSSI = 0x22
+EVT_EXTENDED_INQUIRY_RESULT = 0x2f
+EVT_REMOTE_NAME_REQ_COMPLETE = 0x07
+
+OGF_LINK_CTL = 0x01
+OCF_INQUIRY = 0x0001
+OCF_REMOTE_NAME_REQ = 0x0019
+
+
+def opcode(ogf, ocf):
+    return (ogf << 10) | ocf
+
+
+def open_hci(dev=0):
+    s = socket.socket(AF_BLUETOOTH, socket.SOCK_RAW, BTPROTO_HCI)
+    # фильтр: пропускать все типы пакетов и все события
+    s.setsockopt(0, HCI_FILTER,
+                 struct.pack("IIIH2x", 0xffffffff, 0xffffffff,
+                             0xffffffff, 0))
+    s.bind((dev,))
+    s.settimeout(1.0)
+    return s
+
+
+def send_cmd(s, ogf, ocf, payload=b""):
+    op = opcode(ogf, ocf)
+    pkt = struct.pack("<BHB", 0x01, op, len(payload)) + payload
+    s.send(pkt)
+
+
+def mac(raw):
+    return ":".join("%02X" % b for b in raw[::-1])
+
+
+def scan(seconds=12):
+    s = open_hci()
+    # Inquiry: LAP 9e8b33 (общий), длительность, без лимита ответов
+    dur = max(2, min(int(seconds / 1.28), 30))
+    send_cmd(s, OGF_LINK_CTL, OCF_INQUIRY,
+             bytes([0x33, 0x8b, 0x9e, dur, 0x00]))
+
+    found = {}
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        try:
+            d = s.recv(300)
+        except socket.timeout:
+            continue
+        if len(d) < 3 or d[0] != 0x04:          # только события
+            continue
+        code, body = d[1], d[3:]
+        if code in (EVT_INQUIRY_RESULT, EVT_INQUIRY_RESULT_RSSI,
+                    EVT_EXTENDED_INQUIRY_RESULT):
+            n = body[0] if code != EVT_EXTENDED_INQUIRY_RESULT else 1
+            off = 1
+            for _ in range(n):
+                if off + 6 > len(body):
+                    break
+                addr = body[off:off + 6]
+                rssi = None
+                if code == EVT_INQUIRY_RESULT_RSSI:
+                    rssi = struct.unpack("b", body[off + 13:off + 14])[0]
+                elif code == EVT_EXTENDED_INQUIRY_RESULT:
+                    rssi = struct.unpack("b", body[off + 13:off + 14])[0]
+                key = mac(addr)
+                if key not in found:
+                    found[key] = {"raw": addr, "rssi": rssi, "name": ""}
+                off += 14
+    # имена спрашиваем ПОСЛЕ опроса: во время инквайри чип их отклоняет
+    for key, info in found.items():
+        send_cmd(s, OGF_LINK_CTL, OCF_REMOTE_NAME_REQ,
+                 info["raw"] + bytes([0x02, 0x00, 0x00, 0x00]))
+        t1 = time.time()
+        while time.time() - t1 < 6:
+            try:
+                d = s.recv(300)
+            except socket.timeout:
+                continue
+            if len(d) > 10 and d[0] == 0x04 and \
+                    d[1] == EVT_REMOTE_NAME_REQ_COMPLETE:
+                body = d[3:]
+                if mac(body[1:7]) == key:
+                    nm = body[7:].split(b"\x00")[0]
+                    found[key]["name"] = nm.decode("utf-8", "replace")
+                    break
+    s.close()
+    return found
+
+
+def main():
+    seconds = int(sys.argv[1]) if len(sys.argv) > 1 else 12
+    found = scan(seconds)
+    if not found:
+        print("устройств не найдено")
+        return 1
+    for addr, info in sorted(found.items(),
+                             key=lambda kv: -(kv[1]["rssi"] or -99)):
+        rssi = "%d дБм" % info["rssi"] if info["rssi"] is not None else "—"
+        print("%s  %8s  %s" % (addr, rssi, info["name"] or "(без имени)"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

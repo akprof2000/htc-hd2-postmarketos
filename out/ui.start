@@ -12,6 +12,7 @@ set -x 2>&9
 	# после убитого X остаются замки - новый X с ними не стартует
 	rm -f /tmp/.X0-lock /tmp/.X11-unix/X0
 	mkdir -p /dev/msm_camera; mknod /dev/msm_camera/control0 c 245 0 2>/dev/null; mknod /dev/msm_camera/config0 c 245 1 2>/dev/null; mknod /dev/msm_camera/frame0 c 245 2 2>/dev/null
+	setsid /usr/local/bin/btsetup >/dev/null 2>&1 &
 	setsid /usr/local/bin/phoned </dev/null >>/var/log/phoned.log 2>&1 &
 	/usr/local/bin/backlight 180 >/dev/null 2>&1
 	busybox fbset -depth 32 2>/dev/null || fbset -depth 32 2>/dev/null
