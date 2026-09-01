@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""2048 для HTC HD2 — свайпы пальцем."""
+import fcntl
+import random
+import tkinter as tk
+
+BG, FG = "#101828", "#e8eef5"
+COLORS = {0: "#1c2a40", 2: "#33415c", 4: "#3a5a7c", 8: "#0a6ebd",
+          16: "#217a6b", 32: "#1f7a33", 64: "#8a5a2e", 128: "#a4712c",
+          256: "#a4262c", 512: "#7a2b4b", 1024: "#5133b8", 2048: "#7a4b8a"}
+
+
+class Game:
+    def __init__(self, root):
+        self.root = root
+        root.title("2048")
+        root.configure(bg=BG)
+        root.geometry("480x740+0+0")
+
+        self.score = 0
+        self.lbl = tk.Label(root, text="", font=("DejaVu Sans", 18, "bold"),
+                            bg=BG, fg=FG)
+        self.lbl.pack(pady=(16, 4))
+        tk.Label(root, text="свайпы пальцем · цель 2048",
+                 font=("DejaVu Sans", 11), bg=BG, fg="#7c8794").pack()
+
+        self.grid_fr = tk.Frame(root, bg=BG)
+        self.grid_fr.pack(expand=True)
+        self.cells = []
+        for r in range(4):
+            row = []
+            for c in range(4):
+                l = tk.Label(self.grid_fr, text="", width=4, height=2,
+                             font=("DejaVu Sans", 22, "bold"), fg="white")
+                l.grid(row=r, column=c, padx=4, pady=4)
+                row.append(l)
+            self.cells.append(row)
+
+        tk.Button(root, text="Заново", font=("DejaVu Sans", 14, "bold"),
+                  bg="#33415c", fg="white", relief="flat", bd=0, height=2,
+                  command=self.reset).pack(fill="x", padx=60, pady=14)
+
+        for w in (root, self.grid_fr):
+            w.bind("<ButtonPress-1>", self.down)
+            w.bind("<ButtonRelease-1>", self.up)
+        for row in self.cells:
+            for l in row:
+                l.bind("<ButtonPress-1>", self.down)
+                l.bind("<ButtonRelease-1>", self.up)
+        self.reset()
+        root.after(300, lambda: root.geometry("480x740+0+0"))
+
+    def reset(self):
+        self.b = [[0] * 4 for _ in range(4)]
+        self.score = 0
+        self.spawn(); self.spawn(); self.draw()
+
+    def spawn(self):
+        empt = [(r, c) for r in range(4) for c in range(4)
+                if not self.b[r][c]]
+        if empt:
+            r, c = random.choice(empt)
+            self.b[r][c] = 4 if random.random() < 0.1 else 2
+
+    def down(self, e):
+        self.sx, self.sy = e.x_root, e.y_root
+
+    def up(self, e):
+        dx, dy = e.x_root - self.sx, e.y_root - self.sy
+        if max(abs(dx), abs(dy)) < 30:
+            return
+        if abs(dx) > abs(dy):
+            self.move("l" if dx < 0 else "r")
+        else:
+            self.move("u" if dy < 0 else "d")
+
+    def move(self, d):
+        def slide(row):
+            xs = [x for x in row if x]
+            out, i = [], 0
+            while i < len(xs):
+                if i + 1 < len(xs) and xs[i] == xs[i + 1]:
+                    out.append(xs[i] * 2)
+                    self.score += xs[i] * 2
+                    i += 2
+                else:
+                    out.append(xs[i]); i += 1
+            return out + [0] * (4 - len(out))
+
+        old = [r[:] for r in self.b]
+        for i in range(4):
+            if d in "lr":
+                row = self.b[i][:: -1 if d == "r" else 1]
+                row = slide(row)
+                self.b[i] = row[:: -1 if d == "r" else 1]
+            else:
+                col = [self.b[r][i] for r in range(4)]
+                col = col[:: -1 if d == "d" else 1]
+                col = slide(col)
+                col = col[:: -1 if d == "d" else 1]
+                for r in range(4):
+                    self.b[r][i] = col[r]
+        if self.b != old:
+            self.spawn()
+        self.draw()
+
+    def draw(self):
+        self.lbl.config(text="Счёт: %d" % self.score)
+        for r in range(4):
+            for c in range(4):
+                v = self.b[r][c]
+                self.cells[r][c].config(
+                    text=str(v) if v else "",
+                    bg=COLORS.get(v, "#e8b93c"),
+                    font=("DejaVu Sans", 22 if v < 1000 else 17, "bold"))
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.2048.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="game2048")
+    Game(root)
+    root.mainloop()

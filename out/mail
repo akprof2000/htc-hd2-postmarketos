@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Почта HTC HD2: IMAP-входящие + отправка SMTP. Без внешних библиотек.
+
+Настройки в /root/.mailrc (json). Для Gmail/Яндекс нужен «пароль
+приложения», обычный не подойдёт.
+"""
+import email
+import email.header
+import email.mime.text
+import fcntl
+import imaplib
+import json
+import os
+import smtplib
+import ssl
+import threading
+import tkinter as tk
+
+CFG = "/root/.mailrc"
+BG, FG, DIM, KEY, ACC = "#101828", "#e8eef5", "#7c8794", "#1c2a40", "#1f7a33"
+RED = "#a4262c"
+
+
+def load_cfg():
+    try:
+        return json.load(open(CFG))
+    except (OSError, ValueError):
+        return {"imap": "imap.yandex.ru", "smtp": "smtp.yandex.ru",
+                "user": "", "password": ""}
+
+
+def dec(s):
+    out = ""
+    for part, enc in email.header.decode_header(s or ""):
+        out += (part.decode(enc or "utf-8", "replace")
+                if isinstance(part, bytes) else part)
+    return out
+
+
+def body_text(msg):
+    if msg.is_multipart():
+        for p in msg.walk():
+            if p.get_content_type() == "text/plain":
+                return p.get_payload(decode=True).decode(
+                    p.get_content_charset() or "utf-8", "replace")
+        return "(письмо без текстовой части)"
+    return msg.get_payload(decode=True).decode(
+        msg.get_content_charset() or "utf-8", "replace")
+
+
+class Mail:
+    def __init__(self, root):
+        self.root = root
+        self.cfg = load_cfg()
+        self.msgs = []
+        root.title("Почта")
+        root.configure(bg=BG)
+        root.geometry("480x500+0+0")   # место под клавиатуру снизу
+        self.body = tk.Frame(root, bg=BG)
+        self.body.pack(expand=True, fill="both")
+        if self.cfg["user"] and self.cfg["password"]:
+            self.ui_inbox()
+        else:
+            self.ui_setup()
+
+    def clear(self):
+        for w in self.body.winfo_children():
+            w.destroy()
+
+    # ── настройка ─────────────────────────────────────────────────────
+    def ui_setup(self):
+        self.clear()
+        tk.Label(self.body, text="Настройка почты",
+                 font=("DejaVu Sans", 16, "bold"), bg=BG, fg=FG
+                 ).pack(pady=(12, 8))
+        self.fields = {}
+        for key, label in [("user", "Адрес (логин)"),
+                           ("password", "Пароль приложения"),
+                           ("imap", "IMAP-сервер"), ("smtp", "SMTP-сервер")]:
+            tk.Label(self.body, text=label, font=("DejaVu Sans", 11),
+                     bg=BG, fg=DIM, anchor="w", padx=12).pack(fill="x")
+            e = tk.Entry(self.body, font=("DejaVu Sans", 14), bg=KEY, fg=FG,
+                         insertbackground=FG, relief="flat",
+                         show="•" if key == "password" else "")
+            e.insert(0, self.cfg.get(key, ""))
+            e.pack(fill="x", padx=12, pady=(2, 6), ipady=5)
+            self.fields[key] = e
+        tk.Button(self.body, text="Сохранить и войти",
+                  font=("DejaVu Sans", 15, "bold"), bg=ACC, fg="white",
+                  relief="flat", bd=0, height=2, command=self.save
+                  ).pack(fill="x", padx=12, pady=8)
+
+    def save(self):
+        for k, e in self.fields.items():
+            self.cfg[k] = e.get().strip()
+        with open(CFG, "w") as f:
+            json.dump(self.cfg, f)
+        os.chmod(CFG, 0o600)
+        self.ui_inbox()
+
+    # ── входящие ──────────────────────────────────────────────────────
+    def ui_inbox(self):
+        self.clear()
+        bar = tk.Frame(self.body, bg=BG)
+        bar.pack(fill="x", padx=8, pady=6)
+        tk.Button(bar, text="⟳ Обновить", font=("DejaVu Sans", 13, "bold"),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.fetch).pack(side="left", expand=True,
+                                           fill="both", padx=2)
+        tk.Button(bar, text="✎ Написать", font=("DejaVu Sans", 13, "bold"),
+                  bg=ACC, fg="white", relief="flat", bd=0, height=2,
+                  command=self.ui_compose).pack(side="left", expand=True,
+                                                fill="both", padx=2)
+        tk.Button(bar, text="⚙", font=("DejaVu Sans", 13, "bold"),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=2, width=3,
+                  command=self.ui_setup).pack(side="left", padx=2)
+        self.status = tk.Label(self.body, text="", font=("DejaVu Sans", 11),
+                               bg=BG, fg=DIM, anchor="w", padx=10)
+        self.status.pack(fill="x")
+        self.lst = tk.Listbox(self.body, font=("DejaVu Sans", 12), bg=KEY,
+                              fg=FG, selectbackground="#2a3a4a",
+                              relief="flat", bd=0, activestyle="none")
+        self.lst.pack(expand=True, fill="both", padx=8, pady=(4, 8))
+        self.lst.bind("<Double-Button-1>", lambda e: self.ui_read())
+        for frm, subj in self.msgs:
+            self.lst.insert("end", " %s — %s" % (frm, subj))
+        if not self.msgs:
+            self.fetch()
+
+    def fetch(self):
+        self.status.config(text="загружаю…", fg="#ffa726")
+        threading.Thread(target=self._fetch, daemon=True).start()
+
+    def _fetch(self):
+        try:
+            im = imaplib.IMAP4_SSL(self.cfg["imap"],
+                                   ssl_context=ssl.create_default_context())
+            im.login(self.cfg["user"], self.cfg["password"])
+            im.select("INBOX", readonly=True)
+            _, data = im.search(None, "ALL")
+            ids = data[0].split()[-15:][::-1]
+            msgs, full = [], []
+            for i in ids:
+                _, d = im.fetch(i, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+                m = email.message_from_bytes(d[0][1])
+                frm = dec(m.get("From", "?")).split("<")[0].strip()[:24]
+                subj = dec(m.get("Subject", "(без темы)"))[:60]
+                msgs.append((frm, subj))
+                full.append(i)
+            im.logout()
+            self.msgs, self.ids = msgs, full
+            self.root.after(0, self._fill, "писем: %d" % len(msgs), "#66bb6a")
+        except Exception as e:
+            self.root.after(0, lambda: self.status.config(
+                text="ошибка: %s" % str(e)[:60], fg="#ef5350"))
+
+    def _fill(self, txt, color):
+        if not self.lst.winfo_exists():
+            return
+        self.lst.delete(0, "end")
+        for frm, subj in self.msgs:
+            self.lst.insert("end", " %s — %s" % (frm, subj))
+        self.status.config(text=txt, fg=color)
+
+    # ── чтение ────────────────────────────────────────────────────────
+    def ui_read(self):
+        sel = self.lst.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        self.clear()
+        tk.Button(self.body, text="← Назад", font=("DejaVu Sans", 13),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=2,
+                  command=self.ui_inbox).pack(fill="x", padx=8, pady=6)
+        txt = tk.Text(self.body, font=("DejaVu Sans", 12), bg=KEY, fg=FG,
+                      relief="flat", wrap="word", padx=8, pady=8)
+        txt.pack(expand=True, fill="both", padx=8, pady=(0, 8))
+        txt.insert("1.0", "загружаю письмо…")
+
+        def work():
+            try:
+                im = imaplib.IMAP4_SSL(self.cfg["imap"])
+                im.login(self.cfg["user"], self.cfg["password"])
+                im.select("INBOX", readonly=True)
+                _, d = im.fetch(self.ids[idx], "(BODY.PEEK[])")
+                m = email.message_from_bytes(d[0][1])
+                im.logout()
+                out = "От: %s\nТема: %s\n\n%s" % (
+                    dec(m.get("From")), dec(m.get("Subject")),
+                    body_text(m)[:8000])
+                self.root.after(0, lambda: (txt.delete("1.0", "end"),
+                                            txt.insert("1.0", out)))
+            except Exception as e:
+                self.root.after(0, lambda: (txt.delete("1.0", "end"),
+                                            txt.insert("1.0",
+                                                       "ошибка: %s" % e)))
+        threading.Thread(target=work, daemon=True).start()
+
+    # ── написать ──────────────────────────────────────────────────────
+    def ui_compose(self):
+        self.clear()
+        tk.Button(self.body, text="← Назад", font=("DejaVu Sans", 13),
+                  bg=KEY, fg=FG, relief="flat", bd=0, height=1,
+                  command=self.ui_inbox).pack(fill="x", padx=8, pady=4)
+        tk.Label(self.body, text="Кому", font=("DejaVu Sans", 11), bg=BG,
+                 fg=DIM, anchor="w", padx=10).pack(fill="x")
+        self.to = tk.Entry(self.body, font=("DejaVu Sans", 13), bg=KEY,
+                           fg=FG, insertbackground=FG, relief="flat")
+        self.to.pack(fill="x", padx=8, ipady=4)
+        tk.Label(self.body, text="Тема", font=("DejaVu Sans", 11), bg=BG,
+                 fg=DIM, anchor="w", padx=10).pack(fill="x")
+        self.subj = tk.Entry(self.body, font=("DejaVu Sans", 13), bg=KEY,
+                             fg=FG, insertbackground=FG, relief="flat")
+        self.subj.pack(fill="x", padx=8, ipady=4)
+        self.text = tk.Text(self.body, font=("DejaVu Sans", 13), bg=KEY,
+                            fg=FG, insertbackground=FG, relief="flat",
+                            wrap="word", height=6)
+        self.text.pack(expand=True, fill="both", padx=8, pady=4)
+        self.snd = tk.Button(self.body, text="Отправить",
+                             font=("DejaVu Sans", 15, "bold"), bg=ACC,
+                             fg="white", relief="flat", bd=0, height=2,
+                             command=self.send)
+        self.snd.pack(fill="x", padx=8, pady=(0, 8))
+
+    def send(self):
+        to = self.to.get().strip()
+        if not to:
+            return
+        msg = email.mime.text.MIMEText(self.text.get("1.0", "end"))
+        msg["From"], msg["To"] = self.cfg["user"], to
+        msg["Subject"] = self.subj.get()
+        self.snd.config(text="отправляю…", bg="#8a5a2e")
+
+        def work():
+            try:
+                s = smtplib.SMTP_SSL(self.cfg["smtp"], 465, timeout=30)
+                s.login(self.cfg["user"], self.cfg["password"])
+                s.send_message(msg)
+                s.quit()
+                self.root.after(0, self.ui_inbox)
+            except Exception as e:
+                self.root.after(0, lambda: self.snd.config(
+                    text="ошибка: %s" % str(e)[:40], bg=RED))
+        threading.Thread(target=work, daemon=True).start()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.mail.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="mailapp")
+    Mail(root)
+    root.mainloop()

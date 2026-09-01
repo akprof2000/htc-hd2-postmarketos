@@ -1,0 +1,11 @@
+#!/bin/sh
+# Фонарик HTC HD2: переключатель светодиода вспышки (+вибра-отклик).
+LED=/sys/class/leds/flashlight/brightness
+echo 30 > /sys/class/timed_output/vibrator/enable 2>/dev/null
+if [ "$(cat $LED)" != "0" ]; then
+    echo 0 > $LED
+    echo 'фонарик выключен'
+else
+    echo 128 > $LED
+    echo 'фонарик включён'
+fi

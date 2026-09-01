@@ -1,0 +1,8 @@
+#!/bin/sh
+# Срабатывание будильника: экран, вибра, мелодия трижды.
+echo 200 > /sys/class/leds/lcd-backlight/brightness 2>/dev/null
+for i in 1 2 3; do
+    echo 700 > /sys/class/timed_output/vibrator/enable 2>/dev/null
+    /usr/local/bin/ringtone
+    sleep 1
+done
