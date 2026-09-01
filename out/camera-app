@@ -213,7 +213,72 @@ class Camera:
                               fg="white", relief="flat", bd=0,
                               command=self.video)
         self.vbtn.pack(side="left", fill="both", padx=(4, 0), ipadx=10)
+        row_c = tk.Frame(root, bg=BG)
+        row_c.pack(fill="x", padx=6, pady=(4, 0))
+        self.b_pv = tk.Button(row_c, text="Превью: выкл",
+                              font=("DejaVu Sans", 12, "bold"), bg=KEY,
+                              fg=FG, relief="flat", bd=0, height=2,
+                              command=self.toggle_preview)
+        self.b_pv.pack(expand=True, fill="both", padx=2)
         root.after(300, lambda: root.geometry("480x776+0+24"))
+        self.pv_proc = None
+        self.pv_on = False
+        root.protocol("WM_DELETE_WINDOW", self.quit)
+
+    # ── живое превью (поток с возвратом буферов драйверу) ────────────
+    def toggle_preview(self):
+        if self.pv_on:
+            self.stop_preview()
+        else:
+            self.start_preview()
+
+    def start_preview(self):
+        self.pv_on = True
+        self.b_pv.config(text="Превью: вкл", bg="#2c5aa4")
+        self.pv_proc = subprocess.Popen(
+            ["/usr/local/bin/campreview", "600", "60", "900"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+        self.root.after(600, self.tick_preview)
+
+    def stop_preview(self):
+        self.pv_on = False
+        try:
+            self.b_pv.config(text="Превью: выкл", bg=KEY)
+        except tk.TclError:
+            pass
+        if self.pv_proc and self.pv_proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(self.pv_proc.pid), 15)
+                self.pv_proc.wait(timeout=8)
+            except Exception:
+                pass
+        self.pv_proc = None
+        time.sleep(0.5)
+
+    def tick_preview(self):
+        if not self.pv_on:
+            return
+        PW, PH = W // 4, H // 4
+        try:
+            st = os.stat("/tmp/preview.raw")
+            if st.st_size >= PW * PH and st.st_mtime != getattr(
+                    self, "_pv_t", 0):
+                self._pv_t = st.st_mtime
+                d = np.fromfile("/tmp/preview.raw", dtype=np.uint8,
+                                count=PW * PH).reshape(PH, PW)
+                rgb = debayer(d.astype(np.float32))
+                img = finish(rgb, "Без фильтра").resize((456, 342),
+                                                        Image.NEAREST)
+                self.pv_img = ImageTk.PhotoImage(img)
+                self.view.config(image=self.pv_img, text="")
+        except (OSError, ValueError):
+            pass
+        self.root.after(500, self.tick_preview)
+
+    def quit(self):
+        self.stop_preview()
+        self.root.destroy()
 
     def mk(self, parent, cmd):
         b = tk.Button(parent, text="", font=("DejaVu Sans", 12, "bold"),
@@ -251,9 +316,21 @@ class Camera:
         self.vbtn.config(state="disabled", bg=WARN, text="запись…")
         self.btn.config(state="disabled")
 
+        was_pv = self.pv_on
+        if was_pv:
+            self.stop_preview()
+
         def vwork():
             try:
-                self.log("видео: съёмка 10 с + сборка (~1 мин)…")
+                # честный отсчёт на кнопке, чтобы было видно что идёт запись
+                def countdown(n):
+                    if n > 0 and self.vbtn["state"] == "disabled":
+                        self.vbtn.config(text="запись… " + str(n) + " с")
+                        self.root.after(1000, countdown, n - 1)
+                    elif self.vbtn["state"] == "disabled":
+                        self.vbtn.config(text="сборка…")
+                self.root.after(0, countdown, 10)
+                self.log("видео: съёмка 10 с, потом сборка (~40 с)…")
                 r = subprocess.run(["/usr/local/bin/camvid", "10"],
                                    capture_output=True, text=True,
                                    timeout=300)
@@ -268,6 +345,9 @@ class Camera:
         threading.Thread(target=vwork, daemon=True).start()
 
     def work(self):
+        was_pv = self.pv_on
+        if was_pv:
+            self.stop_preview()
         try:
             for t in range(TIMERS[self.timer], 0, -1):
                 self.log("таймер: %d…" % t)
@@ -292,6 +372,8 @@ class Camera:
                 self.status.config(text="сохранено: " +
                                    os.path.basename(name)),
                 self.btn.config(state="normal", bg=ACC, text="📷  Снимок")))
+            if was_pv:
+                self.root.after(0, self.start_preview)
         except Exception as e:
             self.root.after(0, lambda: (
                 self.status.config(text="ошибка: %s" % str(e)[:60]),
