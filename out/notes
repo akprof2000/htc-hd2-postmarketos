@@ -13,12 +13,12 @@ def main():
     root = tk.Tk(className="notes")
     root.title("Заметки")
     root.configure(bg=BG)
-    root.geometry("480x470+0+24")   # снизу место под клавиатуру
+    root.geometry("480x488+0+24")   # снизу место под клавиатуру
 
     text = tk.Text(root, font=("DejaVu Sans", 14), bg=FIELD, fg=FG,
                    insertbackground=FG, relief="flat", wrap="word",
                    padx=10, pady=10)
-    text.pack(expand=True, fill="both", padx=8, pady=8)
+    text.pack(expand=True, fill="both", padx=6, pady=(6, 2))
     try:
         text.insert("1.0", open(FILE, encoding="utf-8").read())
     except OSError:
@@ -26,7 +26,7 @@ def main():
 
     status = tk.Label(root, text="сохраняется автоматически",
                       font=("DejaVu Sans", 10), bg=BG, fg="#7c8794")
-    status.pack(pady=(0, 6))
+    status.pack(pady=(0, 3))
 
     def save():
         try:
@@ -38,7 +38,7 @@ def main():
 
     subprocess.run(["/usr/local/bin/kbd"], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
-    root.after(300, lambda: root.geometry("480x470+0+24"))
+    root.after(300, lambda: root.geometry("480x488+0+24"))
     save()
     root.mainloop()
 

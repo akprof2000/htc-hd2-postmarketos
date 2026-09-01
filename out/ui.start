@@ -34,6 +34,7 @@ set -x 2>&9
 		respawn /usr/local/bin/home &
 		respawn /usr/local/bin/keysd &
 		respawn /usr/local/bin/statusbar &
+		setsid /usr/local/bin/shade --daemon </dev/null >/dev/null 2>&1 &
 		setsid /usr/local/bin/xwatchd </dev/null >/dev/null 2>&1 &
 		exec sleep 2147483647
 	' </dev/null >/var/log/ui.log 2>&1 &

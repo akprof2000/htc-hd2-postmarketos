@@ -9,7 +9,7 @@ import subprocess
 import tkinter as tk
 
 BG, KEYBG, FG, ACT = "#0d1420", "#1e2c42", "#e8eef5", "#33517c"
-H = 264
+H = 288
 
 RU = ["йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю"]
 EN = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
@@ -33,13 +33,13 @@ class Kbd:
         self.shift = False
         root.attributes("-topmost", True)
         root.configure(bg=BG)
-        root.geometry("480x%d+0+%d" % (H, 776 - H))
+        root.geometry("480x%d+0+%d" % (H, 800 - H))
         self.body = tk.Frame(root, bg=BG)
         self.body.pack(expand=True, fill="both")
         self.draw()
         # IceWM ставит окно по-своему — возвращаем на место и в размер
         def fix():
-            root.geometry("480x%d+0+%d" % (H, 776 - H))
+            root.geometry("480x%d+0+%d" % (H, 800 - H))
             root.attributes("-topmost", True)
         for delay in (200, 800, 2000):
             root.after(delay, fix)

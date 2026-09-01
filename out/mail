@@ -55,7 +55,7 @@ class Mail:
         self.msgs = []
         root.title("Почта")
         root.configure(bg=BG)
-        root.geometry("480x480+0+24")   # место под клавиатуру снизу
+        root.geometry("480x488+0+24")   # место под клавиатуру снизу
         self.body = tk.Frame(root, bg=BG)
         self.body.pack(expand=True, fill="both")
         if self.cfg["user"] and self.cfg["password"]:
