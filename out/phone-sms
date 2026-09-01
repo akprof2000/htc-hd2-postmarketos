@@ -156,6 +156,10 @@ class Sms:
             self.status.config(text="ответа нет", fg=DIM)
 
     def refresh(self):
+        try:                             # входящие просмотрены
+            open(os.path.join(RUN, "sms_new"), "w").close()
+        except OSError:
+            pass
         self.status.config(text="читаю сообщения…", fg=DIM)
         send_at("AT+CMGF=1")
         time.sleep(0.4)

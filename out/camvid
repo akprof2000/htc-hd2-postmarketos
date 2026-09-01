@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Видеосъёмка HTC HD2: camsnap-видеорежим -> дебайер -> MP4.
+
+camvid [секунд]  (по умолчанию 10) -> /root/Pictures/video-*.mp4
+"""
+import glob
+import os
+import subprocess
+import sys
+import time
+
+import numpy as np
+
+W, H = 1296, 972
+OW, OH = 648, 486          # половинное разрешение — дебайер 2x2
+
+
+def main():
+    sec = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    print("съёмка %d с…" % sec)
+    r = subprocess.run(["/usr/local/bin/camsnap", "100", "1200", str(sec)],
+                       capture_output=True, text=True, timeout=sec + 40)
+    frames = sorted(glob.glob("/tmp/vid/f*.raw"))
+    if not frames:
+        print("нет кадров:", r.stdout.strip()[-60:])
+        return 1
+    print("кадров: %d, собираю MP4…" % len(frames))
+    fps = max(1, round(len(frames) / float(sec)))
+    name = "/root/Pictures/" + time.strftime("video-%Y%m%d-%H%M%S.mp4")
+    ff = subprocess.Popen(
+        ["ffmpeg", "-v", "quiet", "-y", "-f", "rawvideo",
+         "-pix_fmt", "rgb24", "-s", "%dx%d" % (OW, OH), "-r", str(fps),
+         "-i", "-", "-c:v", "mpeg4", "-q:v", "6", name],
+        stdin=subprocess.PIPE)
+    # общий баланс белого по первому кадру, чтобы видео не мигало
+    wb = None
+    for fn in frames:
+        d = np.fromfile(fn, dtype=np.uint8)
+        g = d[:W * H].reshape(H, W).astype(np.float32)
+        G = (g[0::2, 0::2] + g[1::2, 1::2]) / 2
+        R = g[0::2, 1::2]; B = g[1::2, 0::2]
+        if wb is None:
+            m = (R.mean() + G.mean() + B.mean()) / 3
+            wb = (m / max(R.mean(), 1), 1.0, m / max(B.mean(), 1),
+                  max(np.percentile(G, 99), 1))
+        rgb = np.dstack([R * wb[0], G, B * wb[2]]) / wb[3]
+        rgb = np.clip(rgb, 0, 1) ** (1 / 2.2) * 255
+        ff.stdin.write(rgb.astype("uint8").tobytes())
+    ff.stdin.close()
+    ff.wait()
+    subprocess.run("rm -f /tmp/vid/f*.raw", shell=True)
+    print("готово:", name, os.path.getsize(name), "байт")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

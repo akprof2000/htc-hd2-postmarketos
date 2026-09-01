@@ -225,6 +225,12 @@ class Calls:
             outcome = "ok"
         elif self.direction == "in":
             outcome = "missed"
+            # счётчик пропущенных для статус-бара; журнал сбрасывает
+            try:
+                cur = int(read_state("missed") or 0)
+            except ValueError:
+                cur = 0
+            write("missed", str(cur + 1))
         else:
             outcome = "busy"
         if self.number or self.direction:

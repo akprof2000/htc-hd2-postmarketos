@@ -185,6 +185,11 @@ class Phone:
 
     # ── журнал ────────────────────────────────────────────────────────
     def show_history(self):
+        try:                             # журнал просмотрен — значок гаснет
+            with open(os.path.join(RUN, "missed"), "w") as f:
+                f.write("0")
+        except OSError:
+            pass
         self.histlist.delete(0, "end")
         self.numbers = []
         try:

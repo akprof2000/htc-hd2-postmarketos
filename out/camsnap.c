@@ -41,17 +41,18 @@ static int vfe_cmd(int id, void *val, int len)
 
 int main(int argc, char **argv)
 {
-	/* camsnap [gain] [line] — экспозиция сенсора */
+	/* camsnap [gain] [line] [видео_секунд] — экспозиция сенсора;
+	 * третий аргумент включает видеорежим: кадры в /tmp/vid/fNNN.raw */
 	int gain = argc > 1 ? atoi(argv[1]) : 120;
 	int line = argc > 2 ? atoi(argv[2]) : 1500;
+	int vidsec = argc > 3 ? atoi(argv[3]) : 0;
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	/* камера строго однопользовательская: второй экземпляр стека
 	 * параллельно с первым роняет ядро */
 	int lockfd = open("/tmp/.camsnap.lock", O_CREAT | O_RDWR, 0644);
 	if (lockfd < 0 || flock(lockfd, LOCK_EX | LOCK_NB) < 0) {
-		printf("камера занята другим процессом
-");
+		printf("камера занята другим процессом\n");
 		return 2;
 	}
 
@@ -175,6 +176,23 @@ int main(int argc, char **argv)
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)
 		printf("VFE START (снимок)\n");
 
+	if (vidsec > 0) {
+		/* видео: копируем живой буфер каждые 400 мс */
+		system("mkdir -p /tmp/vid; rm -f /tmp/vid/f*.raw");
+		int n = 0, total = vidsec * 1000 / 400;
+		sleep(1);                       /* экспозиция устаканилась */
+		for (; n < total && n < 120; n++) {
+			char name[40];
+			sprintf(name, "/tmp/vid/f%03d.raw", n);
+			FILE *f = fopen(name, "wb");
+			if (f) {
+				fwrite(buf + fsz, 1, RAWLEN, f);
+				fclose(f);
+			}
+			usleep(400000);
+		}
+		printf("видео: %d кадров в /tmp/vid\n", n);
+	}
 	sleep(2);
 
 	/* заморозить кадр перед чтением */

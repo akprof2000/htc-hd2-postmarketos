@@ -177,11 +177,18 @@ class Camera:
         self.b_timer = self.mk(row, self.cyc_timer)
         self.labels()
 
-        self.btn = tk.Button(root, text="📷  Снимок",
+        bar = tk.Frame(root, bg=BG)
+        bar.pack(fill="x", padx=12, pady=(4, 12))
+        self.btn = tk.Button(bar, text="📷  Снимок",
                              font=("DejaVu Sans", 17, "bold"), bg=ACC,
                              fg="white", relief="flat", bd=0, height=3,
                              command=self.shoot)
-        self.btn.pack(fill="x", padx=12, pady=(4, 12))
+        self.btn.pack(side="left", expand=True, fill="both", padx=(0, 4))
+        self.vbtn = tk.Button(bar, text="🎥 Видео\n10 с",
+                              font=("DejaVu Sans", 13, "bold"), bg="#2c5aa4",
+                              fg="white", relief="flat", bd=0,
+                              command=self.video)
+        self.vbtn.pack(side="left", fill="both", padx=(4, 0), ipadx=10)
         root.after(300, lambda: root.geometry("480x740+0+0"))
 
     def mk(self, parent, cmd):
@@ -215,6 +222,26 @@ class Camera:
     def shoot(self):
         self.btn.config(state="disabled", bg=WARN, text="съёмка…")
         threading.Thread(target=self.work, daemon=True).start()
+
+    def video(self):
+        self.vbtn.config(state="disabled", bg=WARN, text="запись…")
+        self.btn.config(state="disabled")
+
+        def vwork():
+            try:
+                self.log("видео: съёмка 10 с + сборка (~1 мин)…")
+                r = subprocess.run(["/usr/local/bin/camvid", "10"],
+                                   capture_output=True, text=True,
+                                   timeout=300)
+                last = r.stdout.strip().splitlines()[-1]
+                self.log(last[:60])
+            except Exception as e:
+                self.log("ошибка видео: %s" % str(e)[:50])
+            self.root.after(0, lambda: (
+                self.vbtn.config(state="normal", bg="#2c5aa4",
+                                 text="🎥 Видео\n10 с"),
+                self.btn.config(state="normal")))
+        threading.Thread(target=vwork, daemon=True).start()
 
     def work(self):
         try:
