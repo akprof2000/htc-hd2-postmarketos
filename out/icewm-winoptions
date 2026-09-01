@@ -1,0 +1,32 @@
+# экранная клавиатура: без рамок, внизу, во всю ширину
+matchbox-keyboard.dTitleBar: 0
+matchbox-keyboard.dBorder: 0
+matchbox-keyboard.dResize: 0
+matchbox-keyboard.layer: AboveDock
+Matchbox-keyboard.dTitleBar: 0
+Matchbox-keyboard.dBorder: 0
+Matchbox-keyboard.layer: AboveDock
+
+# телефон и сообщения: без рамок, во всю ширину экрана
+phone.dBorder: 0
+phone.dResize: 0
+Phone.dBorder: 0
+
+# терминал
+xfce4-terminal.geometry: 480x740+0+0
+
+
+# IceMobile: служебные окна — без рамок, поверх всего, не в фокусе
+statusbar.dTitleBar: 0
+statusbar.dBorder: 0
+statusbar.layer: AboveDock
+statusbar.ignoreTaskBar: 1
+statusbar.noFocusOnMap: 1
+volosd.dTitleBar: 0
+volosd.dBorder: 0
+volosd.layer: AboveDock
+volosd.noFocusOnMap: 1
+rukbd.dTitleBar: 0
+rukbd.dBorder: 0
+rukbd.layer: AboveDock
+rukbd.noFocusOnMap: 1

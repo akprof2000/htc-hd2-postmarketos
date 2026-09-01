@@ -22,7 +22,6 @@ def level():
 
 def main():
     root = tk.Tk(className="volosd")
-    root.overrideredirect(True)          # без рамки и без участия WM
     root.attributes("-topmost", True)
     root.configure(bg=BG)
     root.geometry("440x80+20+330")

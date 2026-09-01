@@ -52,7 +52,6 @@ def alarm_set():
 
 def main():
     root = tk.Tk(className="statusbar")
-    root.overrideredirect(True)
     root.attributes("-topmost", True)
     root.configure(bg=BG)
     root.geometry("480x%d+0+0" % H)
@@ -92,7 +91,7 @@ def main():
             slow["wifi"] = wifi_up()
             slow["alarm"] = alarm_set()
         slow["n"] += 1
-        wifi = "  ᯤ" if slow["wifi"] else ""
+        wifi = "  W↑" if slow["wifi"] else ""
         left.config(text="%s %s%s" % (bars, net[0] if net else "—", wifi))
 
         # события: SMS, пропущенные, будильник, фонарик
@@ -117,6 +116,7 @@ def main():
             fg=RED if low else DIM)
 
         root.attributes("-topmost", True)
+        root.lift()                      # окна WM иначе накрывают полоску
         root.geometry("480x%d+0+0" % H)
         root.after(5000, tick)
 

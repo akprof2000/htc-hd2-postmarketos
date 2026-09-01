@@ -31,7 +31,6 @@ class Kbd:
         self.root = root
         self.layer = "ru"
         self.shift = False
-        root.overrideredirect(True)      # не участвует в фокусе WM
         root.attributes("-topmost", True)
         root.configure(bg=BG)
         root.geometry("480x%d+0+%d" % (H, 776 - H))
