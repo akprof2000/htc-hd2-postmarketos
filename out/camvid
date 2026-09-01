@@ -17,12 +17,11 @@ OW, OH = 648, 486          # половинное разрешение — де�
 
 def main():
     sec = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-    print("съёмка %d с…" % sec)
-    r = subprocess.run(["/usr/local/bin/camsnap", "100", "1200", str(sec)],
-                       capture_output=True, text=True, timeout=sec + 40)
+    # кадры уже сняты живым потоком (campreview ... <запись_секунд>) —
+    # здесь только собираем их в MP4
     frames = sorted(glob.glob("/tmp/vid/f*.raw"))
     if not frames:
-        print("нет кадров:", r.stdout.strip()[-60:])
+        print("нет кадров для сборки")
         return 1
     print("кадров: %d, собираю MP4…" % len(frames))
     fps = max(1, round(len(frames) / float(sec)))

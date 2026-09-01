@@ -8,7 +8,10 @@
  * Здесь: камера открывается ОДИН раз, регистрируются три буфера,
  * запускается непрерывный режим, и на каждый кадр шлётся возврат.
  *
- *   campreview [секунд] [gain] [line]
+ *   campreview [секунд] [gain] [line] [запись_секунд]
+ * При записи полные кадры дополнительно пишутся в /tmp/vid/fNNN.raw —
+ * видео берётся из ЖИВОГО потока, поэтому оно действительно движется,
+ * а превью в это время продолжает работать.
  * Кадр (уменьшённый 324x243) пишется в /tmp/preview.raw.
  */
 #include <stdio.h>
@@ -55,6 +58,10 @@ int main(int argc, char **argv)
 	int secs = argc > 1 ? atoi(argv[1]) : 30;
 	int gain = argc > 2 ? atoi(argv[2]) : 60;
 	int line = argc > 3 ? atoi(argv[3]) : 900;
+	int recsec = argc > 4 ? atoi(argv[4]) : 0;   /* запись видео */
+	/* 5-й аргумент: 1 = снимки по кругу (непрерывный режим отдаёт
+	 * только шум — сырой тракт валиден лишь в SNAPSHOT) */
+	int snapmode = argc > 5 ? atoi(argv[5]) : 0;
 	setvbuf(stdout, NULL, _IONBF, 0);
 	signal(SIGTERM, on_sig);
 	signal(SIGINT, on_sig);
@@ -87,7 +94,10 @@ int main(int argc, char **argv)
 	memset(buf, 0, blen);
 
 	/* три буфера — конвейеру есть куда писать, пока мы читаем один */
-	for (int i = 0; i < NBUF; i++) {
+	/* в режиме снимка — ОДИН буфер, как в camsnap: с тремя кадр
+	 * уходит в другой слот, и мы читаем пустоту */
+	int nbuf = snapmode ? 1 : NBUF;
+	for (int i = 0; i < nbuf; i++) {
 		struct msm_pmem_info pi;
 		memset(&pi, 0, sizeof(pi));
 		pi.type = MSM_PMEM_RAW_MAINIMG;
@@ -159,17 +169,61 @@ int main(int argc, char **argv)
 	struct vfe_cmd_start st;
 	memset(&st, 0, sizeof(st));
 	st.inputSource = VFE_START_INPUT_SOURCE_CAMIF;
-	st.operationMode = VFE_START_OPERATION_MODE_CONTINUOUS;
+	st.operationMode = snapmode ? VFE_START_OPERATION_MODE_SNAPSHOT
+				    : VFE_START_OPERATION_MODE_CONTINUOUS;
 	st.snapshotCount = 1;
 	st.pixel = VFE_BAYER_GRGRGR;
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)
 		printf("поток запущен\n");
 
+	/* авто-экспозиция ПОТОКА: в стриминге работает CFG_SET_EXP_GAIN (18),
+	 * а не CFG_SET_PICT_EXP_GAIN (19) — снимочная команда на живой
+	 * поток не действует, кадр остаётся тёмным. */
+	int cur_gain = gain, cur_line = line;
+
 	static uint8_t small[(W / 4) * (H / 4)];
 	time_t t0 = time(NULL);
-	int frames = 0, lost = 0;
+	int frames = 0, lost = 0, saved = 0;
+	struct timespec last_rec = {0, 0};
+	if (recsec > 0)
+		system("mkdir -p /tmp/vid; rm -f /tmp/vid/f*.raw");
 
-	while (!stop_now && time(NULL) - t0 < secs) {
+	while (snapmode && !stop_now && time(NULL) - t0 < secs) {
+		/* Снимок по кругу: устройство НЕ закрываем, кадр читаем
+		 * прямо из буфера (как camsnap) — очередь кадров в режиме
+		 * снимка не используется. */
+		if (frames > 0) {
+			vfe_cmd(VFE_CMD_ID_STOP, NULL, 0);
+			usleep(150000);
+			vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st));
+		}
+		usleep(700000);
+		const uint8_t *src = buf + fsz;
+		for (int y = 0; y < H / 4; y++)
+			for (int x = 0; x < W / 4; x++)
+				small[y * (W / 4) + x] = src[(y * 4) * W + x * 4];
+		FILE *o = fopen("/tmp/preview.tmp", "wb");
+		if (o) {
+			fwrite(small, 1, sizeof(small), o);
+			fclose(o);
+			rename("/tmp/preview.tmp", "/tmp/preview.raw");
+		}
+		if (recsec > 0 && time(NULL) - t0 < recsec && saved < 200) {
+			char nm[48];
+			sprintf(nm, "/tmp/vid/f%03d.raw", saved++);
+			FILE *v = fopen(nm, "wb");
+			if (v) { fwrite(src, 1, RAWLEN, v); fclose(v); }
+		}
+		frames++;
+	}
+
+	while (!snapmode && !stop_now && time(NULL) - t0 < secs) {
+		if (0) {
+			/* перезапуск снимка без закрытия устройства */
+			vfe_cmd(VFE_CMD_ID_STOP, NULL, 0);
+			usleep(120000);
+			vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st));
+		}
 		struct pollfd p = { .fd = frm, .events = POLLIN };
 		int pr = poll(&p, 1, 1500);
 		if (pr <= 0) { lost++; if (lost > 8) break; continue; }
@@ -196,6 +250,53 @@ int main(int argc, char **argv)
 			fwrite(small, 1, sizeof(small), o);
 			fclose(o);
 			rename("/tmp/preview.tmp", "/tmp/preview.raw");
+		}
+
+		/* авто-экспозиция: подстраиваем каждые ~10 кадров */
+		if (frames % 10 == 0) {
+			long sum = 0;
+			for (size_t i = 0; i < sizeof(small); i += 7)
+				sum += small[i];
+			int mean = (int)(sum / (sizeof(small) / 7 + 1));
+			int target = 90;
+			if (mean < target - 12 || mean > target + 12) {
+				double k = (double)target / (mean > 2 ? mean : 2);
+				if (k > 2.0) k = 2.0;
+				if (k < 0.5) k = 0.5;
+				if (cur_line < 900 && k > 1.0)
+					cur_line = (int)(cur_line * k);
+				else
+					cur_gain = (int)(cur_gain * k);
+				if (cur_line > 900) cur_line = 900;
+				if (cur_line < 60) cur_line = 60;
+				if (cur_gain > 400) cur_gain = 400;
+				if (cur_gain < 20) cur_gain = 20;
+				struct sensor_cfg_data ae;
+				memset(&ae, 0, sizeof(ae));
+				ae.cfgtype = CFG_SET_EXP_GAIN;
+				ae.mode = SENSOR_PREVIEW_MODE;
+				ae.cfg.exp_gain.gain = cur_gain;
+				ae.cfg.exp_gain.line = cur_line;
+				ioctl(cfg, MSM_CAM_IOCTL_SENSOR_IO_CFG, &ae);
+			}
+		}
+
+		/* запись видео: полный кадр ~5 раз в секунду */
+		if (recsec > 0 && time(NULL) - t0 < recsec && saved < 200) {
+			struct timespec now;
+			clock_gettime(CLOCK_MONOTONIC, &now);
+			long dms = (now.tv_sec - last_rec.tv_sec) * 1000 +
+				   (now.tv_nsec - last_rec.tv_nsec) / 1000000;
+			if (dms >= 200) {
+				last_rec = now;
+				char nm[48];
+				sprintf(nm, "/tmp/vid/f%03d.raw", saved++);
+				FILE *v = fopen(nm, "wb");
+				if (v) {
+					fwrite(src, 1, RAWLEN, v);
+					fclose(v);
+				}
+			}
 		}
 
 		/* ГЛАВНОЕ: вернуть буфер драйверу */
