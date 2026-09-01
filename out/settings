@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Настройки HTC HD2 — центр управления телефоном."""
+import fcntl
+import os
+import subprocess
+import tkinter as tk
+
+BG, FG, DIM, KEY, ACC = "#101828", "#e8eef5", "#7c8794", "#1c2a40", "#1f7a33"
+BL = "/sys/class/leds/lcd-backlight/brightness"
+
+
+def sh(cmd):
+    subprocess.Popen(cmd, shell=True, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+class Settings:
+    def __init__(self, root):
+        self.root = root
+        root.title("Настройки")
+        root.configure(bg=BG)
+        root.geometry("480x752+0+24")
+
+        tk.Label(root, text="Настройки", font=("DejaVu Sans", 18, "bold"),
+                 bg=BG, fg=FG).pack(pady=(12, 8))
+        body = tk.Frame(root, bg=BG)
+        body.pack(expand=True, fill="both", padx=14)
+
+        # ── яркость ───────────────────────────────────────────────────
+        self.section(body, "Яркость экрана")
+        self.bright = tk.Scale(body, from_=10, to=255, orient="horizontal",
+                               bg=BG, fg=FG, troughcolor=KEY,
+                               highlightthickness=0, showvalue=False,
+                               width=28, sliderlength=48,
+                               command=self.set_bright)
+        self.bright.set(int(read(BL, "180") or 180))
+        self.bright.pack(fill="x", pady=(0, 8))
+
+        # ── громкость ─────────────────────────────────────────────────
+        self.section(body, "Громкость")
+        self.vol = tk.Scale(body, from_=0, to=100, orient="horizontal",
+                            bg=BG, fg=FG, troughcolor=KEY,
+                            highlightthickness=0, showvalue=False,
+                            width=28, sliderlength=48,
+                            command=self.set_vol)
+        self.vol.set(int(read("/run/phone/vol", "70") or 70))
+        self.vol.pack(fill="x", pady=(0, 8))
+
+        # ── переключатели ─────────────────────────────────────────────
+        row = tk.Frame(body, bg=BG)
+        row.pack(fill="x", pady=6)
+        self.btn_2g = self.toggle(row, "Сеть 2G\n(звонки)",
+                                  self.net2g)
+        self.btn_3g = self.toggle(row, "Сеть 3G\n(интернет)",
+                                  self.net3g)
+        row2 = tk.Frame(body, bg=BG)
+        row2.pack(fill="x", pady=6)
+        self.toggle(row2, "Синхронизация\nвремени с вышки", self.timesync)
+        self.toggle(row2, "Перечитать\nSMS-значки", self.clear_marks)
+
+        # ── информация ────────────────────────────────────────────────
+        self.section(body, "Состояние")
+        self.info = tk.Label(body, text="", font=("DejaVu Sans", 11),
+                             bg=KEY, fg=DIM, anchor="w", justify="left",
+                             padx=10, pady=8)
+        self.info.pack(fill="x", pady=(0, 8))
+        self.refresh()
+        root.after(300, lambda: root.geometry("480x752+0+24"))
+
+    def section(self, parent, text):
+        tk.Label(parent, text=text, font=("DejaVu Sans", 12, "bold"),
+                 bg=BG, fg=DIM, anchor="w").pack(fill="x", pady=(6, 2))
+
+    def toggle(self, parent, text, cmd):
+        b = tk.Button(parent, text=text, font=("DejaVu Sans", 12, "bold"),
+                      bg=KEY, fg=FG, relief="flat", bd=0, height=3,
+                      command=cmd)
+        b.pack(side="left", expand=True, fill="both", padx=3)
+        return b
+
+    def set_bright(self, v):
+        try:
+            with open(BL, "w") as f:
+                f.write(str(v))
+        except OSError:
+            pass
+
+    def set_vol(self, v):
+        try:
+            with open("/run/phone/cmd", "w") as f:
+                f.write("@vol %s\n" % v)
+        except OSError:
+            pass
+
+    def at(self, cmd):
+        try:
+            with open("/run/phone/cmd", "w") as f:
+                f.write(cmd + "\n")
+        except OSError:
+            pass
+
+    def net2g(self):
+        self.at('AT+COPS=1,2,"25002",0')
+        self.flash(self.btn_2g)
+
+    def net3g(self):
+        self.at("AT+COPS=0")
+        self.flash(self.btn_3g)
+
+    def timesync(self):
+        self.at("AT+CCLK?")
+
+    def clear_marks(self):
+        for f in ("/run/phone/sms_new", "/run/phone/missed"):
+            try:
+                open(f, "w").close()
+            except OSError:
+                pass
+
+    def flash(self, b):
+        b.config(bg=ACC)
+        b.after(700, lambda: b.config(bg=KEY))
+
+    def refresh(self):
+        up = float(read("/proc/uptime", "0 0").split()[0])
+        mem = {}
+        for ln in open("/proc/meminfo"):
+            k, v = ln.split(":", 1)
+            mem[k] = int(v.split()[0])
+        free = (mem["MemFree"] + mem.get("Cached", 0)) // 1024
+        self.info.config(text=(
+            "Сеть: %s · %s дБм\n"
+            "Батарея: %s%% (%s)\n"
+            "Память: свободно %d МБ · Работает %d ч %02d м"
+            % (read("/run/phone/net", "—"), read("/run/phone/dbm", "?"),
+               read("/sys/class/power_supply/battery/capacity", "?"),
+               read("/sys/class/power_supply/battery/status", "?"),
+               free, up // 3600, up % 3600 // 60)))
+        self.root.after(5000, self.refresh)
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.settings.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="settingsapp")
+    Settings(root)
+    root.mainloop()

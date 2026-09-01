@@ -37,6 +37,12 @@ class Kbd:
         self.body = tk.Frame(root, bg=BG)
         self.body.pack(expand=True, fill="both")
         self.draw()
+        # IceWM ставит окно по-своему — возвращаем на место и в размер
+        def fix():
+            root.geometry("480x%d+0+%d" % (H, 776 - H))
+            root.attributes("-topmost", True)
+        for delay in (200, 800, 2000):
+            root.after(delay, fix)
 
     def rows(self):
         base = {"ru": RU, "en": EN, "num": NUM}[self.layer]
