@@ -70,7 +70,7 @@ def main():
     clock.pack(expand=True)
 
     def go_home(_e=None):
-        subprocess.Popen("DISPLAY=:0 wmctrl -a 'Домой'", shell=True,
+        subprocess.Popen("DISPLAY=:0 /usr/local/bin/shade", shell=True,
                          start_new_session=True,
                          stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
