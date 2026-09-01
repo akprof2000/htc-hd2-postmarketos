@@ -107,7 +107,7 @@ int main(int argc, char **argv)
 		printf("SENSOR SET_MODE: %s (продолжаем)\n", strerror(errno));
 	else
 		printf("сенсор: полнокадровый режим\n");
-	usleep(300000);
+	sleep(1);          /* матрице нужно устояться, иначе VFE виснет */
 
 	/* выдержка/усиление: без них сенсор снимает на минимуме — темно */
 	memset(&sc, 0, sizeof(sc));
@@ -171,10 +171,9 @@ int main(int argc, char **argv)
 	struct vfe_cmd_start st;
 	memset(&st, 0, sizeof(st));
 	st.inputSource = VFE_START_INPUT_SOURCE_CAMIF;
-	/* превью/видео — непрерывный режим: в SNAPSHOT буфер обновляется
-	 * ровно один раз и картинка застывает */
-	st.operationMode = vidsec ? VFE_START_OPERATION_MODE_CONTINUOUS
-				  : VFE_START_OPERATION_MODE_SNAPSHOT;
+	/* ТОЛЬКО SNAPSHOT: непрерывный режим роняет ядро — драйверу нужен
+	 * возврат буферов (ACK кадров), которого мы не делаем. */
+	st.operationMode = VFE_START_OPERATION_MODE_SNAPSHOT;
 	st.snapshotCount = 1;
 	st.pixel = VFE_BAYER_GRGRGR;
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)

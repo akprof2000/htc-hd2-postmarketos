@@ -47,14 +47,21 @@ def capture(gain, line):
 
 
 def debayer(g):
-    """GRBG -> RGB float 0..1 с балансом белого «серый мир»."""
+    """GRBG -> RGB с балансом белого «серый мир».
+
+    Сначала вычитаем уровень чёрного матрицы (пьедестал): без этого
+    тени остаются серыми и снимок выглядит затянутым дымкой.
+    """
+    black = float(np.percentile(g, 0.5))
+    g = np.maximum(g - black, 0)
     G1 = g[0::2, 0::2]; R = g[0::2, 1::2]
     B = g[1::2, 0::2]; G2 = g[1::2, 1::2]
     G = (G1 + G2) / 2
     m = (R.mean() + G.mean() + B.mean()) / 3
-    rgb = np.dstack([R * (m / max(R.mean(), 1)), G,
-                     B * (m / max(B.mean(), 1))])
-    return np.clip(rgb / max(rgb.max(), 1), 0, 1)
+    # баланс белого «серый мир», но БЕЗ растяжки яркости:
+    # растянуть один раз — задача проявки (иначе кадр выбеливает)
+    return np.dstack([R * (m / max(R.mean(), 1)), G,
+                      B * (m / max(B.mean(), 1))]) / 255.0
 
 
 def align(base, other):
@@ -85,10 +92,13 @@ def shoot_auto(flash_mode, log):
     gain = 60.0
     if line >= 2800 and f > 7:            # темно даже на максимуме
         gain = min(60 * f * 400 / 2800, 250)
-    use_flash = flash_mode == "Вкл" or (flash_mode == "Авто" and m < 12)
+    # авто: вспышка, если замер тёмный ИЛИ выдержка упёрлась в потолок
+    dark = m < 35 or (line >= 2800 and f > 3)
+    use_flash = flash_mode == "Вкл" or (flash_mode == "Авто" and dark)
     if use_flash:
-        log("темно — вспышка")
+        log("темно (замер %d) — вспышка" % m)
         torch(True)
+        time.sleep(0.4)          # диоду нужно разгореться до кадра
     log("снимок (усиление %d, выдержка %d)…" % (gain, line))
     try:
         g = capture(gain, line)
@@ -139,9 +149,20 @@ def apply_filter(img, name):
 
 
 def finish(rgb, filt):
-    # нормировка по 99-му перцентилю: одно яркое окно не топит всю сцену
-    hi = np.percentile(rgb, 99.0)
-    rgb = np.clip(rgb / max(hi, 1e-3), 0, 1) ** (1 / 2.2) * 255
+    """Тональная кривая: света под потолок, середина к серой карте.
+
+    Раньше яркость растягивалась дважды (тут и в debayer) — снимки
+    выходили выбеленными.
+    """
+    hi = max(np.percentile(rgb, 99.5), 1e-4)
+    lin = np.clip(rgb / hi, 0, 1)
+    mean = max(float(lin.mean()), 1e-4)
+    k = min(max(0.20 / mean, 0.35), 3.0)      # средняя -> ~0.20
+    lin = np.clip(lin * k, 0, 1)
+    out = lin ** (1 / 2.2)
+    # мягкая S-кривая: тени глубже, света мягче — уходит «дымка»
+    out = np.clip((out - 0.5) * 1.25 + 0.5, 0, 1)
+    rgb = out * 255
     img = Image.fromarray(rgb.astype("uint8"))
     img = img.filter(ImageFilter.UnsharpMask(2, 60, 3))   # лёгкая резкость
     return apply_filter(img, filt)
@@ -162,9 +183,8 @@ class Camera:
         os.makedirs(OUT, exist_ok=True)
 
         self.view = tk.Label(
-            root, text="HTC HD2 · 5 Мп — нажмите «Снимок», снимок появится здесь (живое превью недоступно: драйвер камеры не переживает поток кадров)",
-            font=("DejaVu Sans", 12), bg="#000000", fg=DIM,
-            wraplength=420, justify="center")
+            root, text="HTC HD2 · 5 Мп",
+            font=("DejaVu Sans", 14), bg="#000000", fg=DIM)
         self.view.pack(expand=True, fill="both", padx=6, pady=6)
 
         self.status = tk.Label(root, text="готова", font=("DejaVu Sans", 11),
