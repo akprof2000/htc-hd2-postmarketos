@@ -14,9 +14,11 @@ import time
 
 AF_BLUETOOTH, BTPROTO_HCI, HCI_FILTER = 31, 1, 2
 OGF_VENDOR = 0x3f
-# BCM4329: одна vendor-команда 0xFC15 на всё: [адрес] — чтение (в ответе
-# [адрес, значение]), [адрес, байт] — запись. 0xFC16/0x17/0x14 НЕ ТРОГАТЬ:
-# они подвешивают прошивку чипа вместе с UART-драйвером ядра (проверено).
+# BCM4329: одна vendor-команда 0xFC15 (протокол из открытого Spirit2 FM,
+# jni/tnr/tnr_bch.c): [reg, 0, данные...] — запись 1..4 байт, младший
+# вперёд; [reg, 1, размер] — чтение, в ответе после [reg, 1?] идут байты.
+# 0xFC16/0xFC17/0xFC14 НЕ ТРОГАТЬ: вешают прошивку чипа и UART-драйвер
+# ядра (проверено — только hardboot).
 OCF_FM = 0x15
 
 # регистры (radio-bcm2048.c)
@@ -72,22 +74,28 @@ def cmd(s, ocf, payload):
     raise RuntimeError("FM cmd 0x%02x: нет ответа" % ocf)
 
 
-def wr(s, reg, val):
-    cmd(s, OCF_FM, bytes([reg, val & 0xff]))
+def wr(s, reg, val, size=1):
+    b = bytes([reg, 0]) + bytes((val >> (8 * i)) & 0xff for i in range(size))
+    cmd(s, OCF_FM, b)
 
 
-def rd(s, reg):
-    r = cmd(s, OCF_FM, bytes([reg]))
-    if len(r) < 2 or r[0] != reg:
-        raise RuntimeError("чтение регистра 0x%02x: ответ %s" % (reg, r.hex()))
-    return r[1]
+def rd(s, reg, size=1):
+    r = cmd(s, OCF_FM, bytes([reg, 1, size]))
+    # ответ: [reg, 1?, data...] — берём хвост нужной длины
+    if len(r) < size:
+        raise RuntimeError("чтение 0x%02x: ответ %s" % (reg, r.hex()))
+    d = r[-size:]
+    return int.from_bytes(d, "little")
 
 
 def fm_on(s):
-    wr(s, R_RDS_SYSTEM, FM_ON)
+    # последовательность включения — как в Spirit2 для Broadcom
+    wr(s, R_RDS_SYSTEM, 0x01)               # FM on (без RDS)
     time.sleep(0.05)
-    wr(s, R_FM_CTRL, CTRL_BAND_EU | CTRL_STEREO_AUTO)
-    wr(s, R_AUDIO_CTRL0, AUD_DAC_L | AUD_DAC_R | AUD_ROUTE_DAC | AUD_DEEMPH)
+    wr(s, R_FM_CTRL, CTRL_STEREO_AUTO)      # Европа, стерео-смешивание
+    wr(s, R_AUDIO_CTRL0, 0x005c, 2)         # 75 мкс, DAC, без mute
+    wr(s, 0x10, 0x0003, 2)                  # маски прерываний
+    wr(s, 0xf8, 0x00ff, 2)                  # громкость DAC максимум
     wr(s, R_AUDIO_PAUSE, 0)
 
 
@@ -96,16 +104,13 @@ def fm_off(s):
 
 
 def tune(s, khz):
-    v = (khz - FREQ_BASE) // 10
-    wr(s, R_FREQ0, v & 0xff)
-    wr(s, R_FREQ1, (v >> 8) & 0xff)
+    wr(s, R_FREQ0, (khz - FREQ_BASE) // 10, 2)
     wr(s, R_SEARCH_TUNE_MODE, TUNE_PRESET)
-    time.sleep(0.12)
+    time.sleep(0.15)
 
 
 def freq(s):
-    lo, hi = rd(s, R_FREQ0), rd(s, R_FREQ1)
-    return FREQ_BASE + ((hi << 8) | lo) * 10
+    return FREQ_BASE + rd(s, R_FREQ0, 2) * 10
 
 
 def rssi(s):

@@ -16,14 +16,41 @@ EN = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
 NUM = ["1234567890", "-/:;()₽&@\"", ".,?!'#%+*="]
 
 
+ENV = {"DISPLAY": ":0", "PATH": "/usr/bin:/bin"}
+# окно, в которое печатаем: при тапе по клавише X-фокус уходит в саму
+# клавиатуру (Tk отдаёт его нажатому виджету), и без возврата символ
+# улетает в никуда. Поэтому цель запоминаем и перед вводом возвращаем.
+target = {"id": ""}
+
+
+def _xdo(*args):
+    pre = ["windowfocus", "--sync", target["id"]] if target["id"] else []
+    subprocess.Popen(["xdotool"] + pre + list(args), env=ENV,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def send_char(ch):
-    subprocess.Popen(["xdotool", "type", "--clearmodifiers", "--", ch],
-                     env={"DISPLAY": ":0", "PATH": "/usr/bin:/bin"})
+    _xdo("type", "--clearmodifiers", "--", ch)
 
 
 def send_key(key):
-    subprocess.Popen(["xdotool", "key", "--clearmodifiers", key],
-                     env={"DISPLAY": ":0", "PATH": "/usr/bin:/bin"})
+    _xdo("key", "--clearmodifiers", key)
+
+
+def track(root):
+    """Раз в полсекунды запоминаем чужое окно с фокусом."""
+    try:
+        out = subprocess.run(["xdotool", "getwindowfocus", "getwindowname",
+                              "getwindowfocus"], env=ENV, capture_output=True,
+                             text=True, timeout=2).stdout.splitlines()
+        if len(out) > 1:
+            name = out[0].strip()
+            if name and not name.startswith(("rukbd", "statusbar", "volosd",
+                                             "Шторка")):
+                target["id"] = out[1].strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    root.after(500, track, root)
 
 
 class Kbd:
@@ -104,4 +131,5 @@ if __name__ == "__main__":
         raise SystemExit(0)
     root = tk.Tk(className="rukbd")
     Kbd(root)
+    track(root)
     root.mainloop()
