@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""FM-приёмник HTC HD2 — сидит в чипе BCM4329 вместе с Bluetooth.
+
+Отдельного драйвера нет: регистры приёмника (та же карта, что у BCM2048
+в radio-bcm2048.c) читаются и пишутся vendor-командами по HCI поверх
+уже поднятого hci0. Поэтому перед запуском нужен btsetup.
+
+    fmctl on | off | tune <МГц> | rssi | scan | status | seek up|down
+"""
+import socket
+import struct
+import sys
+import time
+
+AF_BLUETOOTH, BTPROTO_HCI, HCI_FILTER = 31, 1, 2
+OGF_VENDOR = 0x3f
+# BCM4329: одна vendor-команда 0xFC15 на всё: [адрес] — чтение (в ответе
+# [адрес, значение]), [адрес, байт] — запись. 0xFC16/0x17/0x14 НЕ ТРОГАТЬ:
+# они подвешивают прошивку чипа вместе с UART-драйвером ядра (проверено).
+OCF_FM = 0x15
+
+# регистры (radio-bcm2048.c)
+R_RDS_SYSTEM, R_FM_CTRL, R_AUDIO_PAUSE, R_AUDIO_CTRL0 = 0x00, 0x01, 0x04, 0x05
+R_SEARCH_CTRL0, R_SEARCH_TUNE_MODE = 0x07, 0x09
+R_FREQ0, R_FREQ1, R_RSSI = 0x0a, 0x0b, 0x0f
+R_FLAG0 = 0x12
+FREQ_BASE = 64000                            # кГц
+
+FM_ON = 0x01
+CTRL_BAND_EU, CTRL_STEREO_AUTO = 0x00, 0x02
+AUD_DAC_L, AUD_DAC_R, AUD_ROUTE_DAC, AUD_DEEMPH = 0x04, 0x08, 0x10, 0x40
+TUNE_PRESET, TUNE_AUTO = 0x01, 0x03
+STATE = "/run/fm"
+
+
+def opcode(ogf, ocf):
+    return (ogf << 10) | ocf
+
+
+def open_hci(dev=0):
+    s = socket.socket(AF_BLUETOOTH, socket.SOCK_RAW, BTPROTO_HCI)
+    s.setsockopt(0, HCI_FILTER,
+                 struct.pack("IIIH2x", 0xffffffff, 0xffffffff, 0xffffffff, 0))
+    s.bind((dev,))
+    s.settimeout(1.5)
+    return s
+
+
+def cmd(s, ocf, payload):
+    """Vendor-команда -> параметры из Command Complete (без статуса)."""
+    op = opcode(OGF_VENDOR, ocf)
+    s.send(struct.pack("<BHB", 0x01, op, len(payload)) + payload)
+    end = time.time() + 1.5
+    while time.time() < end:
+        try:
+            pkt = s.recv(260)
+        except socket.timeout:
+            break
+        # 0x04 = событие, 0x0e = Command Complete: [ncmd, opcode, status, ...]
+        if len(pkt) >= 7 and pkt[0] == 0x04 and pkt[1] == 0x0e:
+            _ncmd, rop = struct.unpack("<BH", pkt[3:6])
+            if rop == op:
+                status = pkt[6]
+                if status != 0:
+                    raise RuntimeError("FM cmd 0x%02x: статус 0x%02x"
+                                       % (ocf, status))
+                return pkt[7:]
+        if len(pkt) >= 6 and pkt[0] == 0x04 and pkt[1] == 0x0f:   # Command Status
+            st, _n, rop = struct.unpack("<BBH", pkt[3:7])
+            if rop == op and st != 0:
+                raise RuntimeError("FM cmd 0x%02x: отказ 0x%02x" % (ocf, st))
+    raise RuntimeError("FM cmd 0x%02x: нет ответа" % ocf)
+
+
+def wr(s, reg, val):
+    cmd(s, OCF_FM, bytes([reg, val & 0xff]))
+
+
+def rd(s, reg):
+    r = cmd(s, OCF_FM, bytes([reg]))
+    if len(r) < 2 or r[0] != reg:
+        raise RuntimeError("чтение регистра 0x%02x: ответ %s" % (reg, r.hex()))
+    return r[1]
+
+
+def fm_on(s):
+    wr(s, R_RDS_SYSTEM, FM_ON)
+    time.sleep(0.05)
+    wr(s, R_FM_CTRL, CTRL_BAND_EU | CTRL_STEREO_AUTO)
+    wr(s, R_AUDIO_CTRL0, AUD_DAC_L | AUD_DAC_R | AUD_ROUTE_DAC | AUD_DEEMPH)
+    wr(s, R_AUDIO_PAUSE, 0)
+
+
+def fm_off(s):
+    wr(s, R_RDS_SYSTEM, 0)
+
+
+def tune(s, khz):
+    v = (khz - FREQ_BASE) // 10
+    wr(s, R_FREQ0, v & 0xff)
+    wr(s, R_FREQ1, (v >> 8) & 0xff)
+    wr(s, R_SEARCH_TUNE_MODE, TUNE_PRESET)
+    time.sleep(0.12)
+
+
+def freq(s):
+    lo, hi = rd(s, R_FREQ0), rd(s, R_FREQ1)
+    return FREQ_BASE + ((hi << 8) | lo) * 10
+
+
+def rssi(s):
+    v = rd(s, R_RSSI)
+    return v - 256 if v > 127 else v          # дБм, знаковый байт
+
+
+def save(khz):
+    try:
+        with open(STATE, "w") as f:
+            f.write(str(khz))
+    except OSError:
+        pass
+
+
+def main():
+    a = sys.argv[1:] or ["status"]
+    s = open_hci()
+    if a[0] == "on":
+        fm_on(s)
+        khz = int(a[1]) if len(a) > 1 else 100500
+        tune(s, khz)
+        save(khz)
+        print("FM включён, %.1f МГц, RSSI %d" % (freq(s) / 1000, rssi(s)))
+    elif a[0] == "off":
+        fm_off(s)
+        save(0)
+        print("FM выключен")
+    elif a[0] == "tune":
+        khz = int(round(float(a[1]) * 1000))
+        tune(s, khz)
+        save(khz)
+        print("%.1f МГц, RSSI %d" % (freq(s) / 1000, rssi(s)))
+    elif a[0] == "rssi":
+        print(rssi(s))
+    elif a[0] == "status":
+        print("RDS_SYSTEM=0x%02x FM_CTRL=0x%02x AUDIO=0x%02x FLAG=0x%02x "
+              "%.1f МГц RSSI %d" % (rd(s, R_RDS_SYSTEM), rd(s, R_FM_CTRL),
+                                    rd(s, R_AUDIO_CTRL0), rd(s, R_FLAG0),
+                                    freq(s) / 1000, rssi(s)))
+    elif a[0] == "scan":
+        # грубый обзор диапазона по уровню сигнала: шаг 100 кГц
+        best = []
+        for khz in range(87500, 108001, 100):
+            tune(s, khz)
+            r = rssi(s)
+            best.append((r, khz))
+            if r > -60:
+                print("%.1f МГц  %d дБм" % (khz / 1000, r))
+        best.sort(reverse=True)
+        print("самые сильные:", ", ".join("%.1f(%d)" % (k / 1000, r)
+                                          for r, k in best[:8]))
+    elif a[0] == "seek":
+        up = a[1] != "down" if len(a) > 1 else True
+        # SEARCH_CTRL0: бит7 направление вверх, младшие — порог RSSI
+        wr(s, R_SEARCH_CTRL0, (0x80 if up else 0x00) | 0x08)
+        wr(s, R_SEARCH_TUNE_MODE, TUNE_AUTO)
+        for _ in range(40):
+            time.sleep(0.1)
+            if rd(s, R_SEARCH_TUNE_MODE) == 0:
+                break
+        khz = freq(s)
+        save(khz)
+        print("%.1f МГц, RSSI %d" % (khz / 1000, rssi(s)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
