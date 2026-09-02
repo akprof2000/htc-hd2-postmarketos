@@ -47,6 +47,10 @@ int main(int argc, char **argv)
 	int gain = argc > 1 ? atoi(argv[1]) : 120;
 	int line = argc > 2 ? atoi(argv[2]) : 1500;
 	int vidsec = argc > 3 ? atoi(argv[3]) : 0;
+	/* число кадров за один запуск VFE: 1 — обычный снимок; больше —
+	 * VFE продолжает перезаписывать тот же буфер (живое превью)
+	 * без повторных START/STOP, которые роняют ядро */
+	int shots = argc > 4 ? atoi(argv[4]) : 1;
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	/* камера строго однопользовательская: второй экземпляр стека
@@ -174,7 +178,7 @@ int main(int argc, char **argv)
 	/* ТОЛЬКО SNAPSHOT: непрерывный режим роняет ядро — драйверу нужен
 	 * возврат буферов (ACK кадров), которого мы не делаем. */
 	st.operationMode = VFE_START_OPERATION_MODE_SNAPSHOT;
-	st.snapshotCount = 1;
+	st.snapshotCount = shots;
 	st.pixel = VFE_BAYER_GRGRGR;
 	if (vfe_cmd(VFE_CMD_ID_START, &st, sizeof(st)) == 0)
 		printf("VFE START (снимок)\n");
@@ -195,6 +199,12 @@ int main(int argc, char **argv)
 				for (int x = 0; x < W / 4; x++)
 					small[y * (W / 4) + x] =
 						src[(y * 4) * W + x * 4];
+			/* контрольная сумма кадра в журнал: видно,
+			 * обновляется ли буфер или стоит на месте */
+			unsigned sum = 0;
+			for (size_t i = 0; i < sizeof(small); i += 97)
+				sum = sum * 31 + small[i];
+			printf("кадр %08x\n", sum);
 			FILE *f = fopen("/tmp/preview.tmp", "wb");
 			if (f) {
 				fwrite(small, 1, sizeof(small), f);
