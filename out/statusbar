@@ -78,13 +78,31 @@ def main():
                          start_new_session=True,
                          stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
+    # номер последнего активного окна приложения: к моменту тапа фокус
+    # уже может перейти на саму полоску, поэтому :ACTIVE: ненадёжен
+    last = {"id": ""}
+
     def close_win(_e=None):
-        subprocess.Popen(
-            "DISPLAY=:0 sh -c 'n=$(xdotool getactivewindow getwindowname "
-            "2>/dev/null); case \"$n\" in Домой|statusbar) ;; *) "
-            "wmctrl -c :ACTIVE: ;; esac'", shell=True,
-            start_new_session=True, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL)
+        # опрос раз в 5 с может отстать от переключения окон — в момент
+        # нажатия спрашиваем ещё раз; запомненный номер — запасной
+        wid = last["id"]
+        try:
+            out = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname",
+                 "getactivewindow"],
+                capture_output=True, text=True, timeout=2,
+                env=dict(os.environ, DISPLAY=":0")).stdout.splitlines()
+            if len(out) > 1 and out[0].strip() not in (
+                    "statusbar", "Домой", "Шторка", "rukbd", ""):
+                wid = out[1].strip()
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if wid:
+            subprocess.Popen(
+                ["wmctrl", "-i", "-c", wid],
+                env=dict(os.environ, DISPLAY=":0"),
+                start_new_session=True, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL)
         # обработчик окна ловит нажатия и по его элементам: без обрыва
         # тап по крестику открывал бы заодно и шторку
         return "break"
@@ -97,14 +115,22 @@ def main():
     def tick():
         # заголовок активного окна — вместо убранных рамок
         try:
-            nm = subprocess.run(
-                ["xdotool", "getactivewindow", "getwindowname"],
+            out = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname",
+                 "getactivewindow"],
                 capture_output=True, text=True, timeout=3,
-                env=dict(os.environ, DISPLAY=":0")).stdout.strip()
+                env=dict(os.environ, DISPLAY=":0")).stdout.splitlines()
+            nm = out[0].strip() if out else ""
+            wid = out[1].strip() if len(out) > 1 else ""
         except (OSError, subprocess.TimeoutExpired):
+            nm, wid = "", ""
+        if nm in ("statusbar", "Шторка", "rukbd"):
+            nm = ""          # служебное окно: приложение под ним то же
+        elif nm in ("Домой", ""):
             nm = ""
-        if nm in ("statusbar", "Домой", ""):
-            nm = ""
+            last["id"] = ""
+        else:
+            last["id"] = wid
         title.config(text=nm[:16])
         if nm:
             close.config(text=" ✕ ", bg="#a4262c")
@@ -116,7 +142,7 @@ def main():
         bars = "".join("▁▂▃▄▅"[i] if i < n else "·" for i in range(5))
         net = read("/run/phone/net").split()
         # медленные проверки — раз в 30 с
-        if slow["n"] % 6 == 0:
+        if slow["n"] % 20 == 0:      # раз в 30 с при опросе 1.5 с
             slow["wifi"] = wifi_up()
             slow["alarm"] = alarm_set()
         slow["n"] += 1
@@ -154,7 +180,7 @@ def main():
         root.attributes("-topmost", True)
         root.lift()                      # окна WM иначе накрывают полоску
         root.geometry("480x%d+0+0" % H)
-        root.after(5000, tick)
+        root.after(1500, tick)       # заголовок/крестик без заметной задержки
 
     tick()
     root.mainloop()
