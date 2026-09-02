@@ -236,6 +236,14 @@ class Camera:
         self.pv_proc = None
         root.protocol("WM_DELETE_WINDOW", self.quit)
 
+    def quit(self):
+        """Закрытие: снимаем блокировку камеры и гасим фонарь, если горел."""
+        try:
+            torch(False)
+        except Exception:
+            pass
+        self.root.destroy()
+
     def mk(self, parent, cmd):
         b = tk.Button(parent, text="", font=("DejaVu Sans", 12, "bold"),
                       bg=KEY, fg=FG, relief="flat", bd=0, height=2,

@@ -85,6 +85,9 @@ def main():
             "wmctrl -c :ACTIVE: ;; esac'", shell=True,
             start_new_session=True, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL)
+        # обработчик окна ловит нажатия и по его элементам: без обрыва
+        # тап по крестику открывал бы заодно и шторку
+        return "break"
     close.bind("<Button-1>", close_win)
     for w in (root, left, batt, icons, title):
         w.bind("<Button-1>", go_home)
