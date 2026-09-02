@@ -182,6 +182,9 @@ int main(int argc, char **argv)
 	int cur_gain = gain, cur_line = line;
 
 	static uint8_t small[(W / 4) * (H / 4)];
+	/* цветное превью 324x243 RGB: R/G/B из одного 2x2-блока Байера */
+	static uint8_t rgb[(W / 4) * (H / 4) * 3];
+	unsigned char evbuf[4096];
 	time_t t0 = time(NULL);
 	int frames = 0, lost = 0, saved = 0;
 	struct timespec last_rec = {0, 0};
@@ -243,14 +246,24 @@ int main(int argc, char **argv)
 		 * через CbCr-канал) — уменьшаем в 4 раза и пишем */
 		const uint8_t *src = (const uint8_t *)(f.buffer + f.cbcr_off);
 		for (int y = 0; y < H / 4; y++)
-			for (int x = 0; x < W / 4; x++)
-				small[y * (W / 4) + x] = src[(y * 4) * W + x * 4];
+			for (int x = 0; x < W / 4; x++) {
+				const uint8_t *q = src + (y * 4) * W + x * 4;
+				uint8_t *o = rgb + (y * (W / 4) + x) * 3;
+				small[y * (W / 4) + x] = q[0];
+				o[0] = q[1];                        /* R */
+				o[1] = (q[0] + q[W + 1]) >> 1;      /* G */
+				o[2] = q[W];                        /* B */
+			}
+		/* пишем во временный и переименовываем: читатель никогда
+		 * не увидит полукадр */
 		FILE *o = fopen("/tmp/preview.tmp", "wb");
 		if (o) {
-			fwrite(small, 1, sizeof(small), o);
+			fwrite(rgb, 1, sizeof(rgb), o);
 			fclose(o);
-			rename("/tmp/preview.tmp", "/tmp/preview.raw");
+			rename("/tmp/preview.tmp", "/tmp/preview.rgb");
 		}
+		if (frames % 50 == 0)
+			printf("кадров: %d, gain %d line %d\n", frames, cur_gain, cur_line);
 
 		/* авто-экспозиция: подстраиваем каждые ~10 кадров */
 		if (frames % 10 == 0) {
@@ -302,6 +315,21 @@ int main(int argc, char **argv)
 		/* ГЛАВНОЕ: вернуть буфер драйверу */
 		if (ioctl(frm, MSM_CAM_IOCTL_RELEASE_FRAME_BUFFER, &f) < 0)
 			printf("возврат буфера: %s\n", strerror(errno));
+
+		/* очередь событий драйвера никто не читает и она растёт
+		 * (~3 события на кадр) — вычитываем и выбрасываем */
+		for (int k = 0; k < 8; k++) {
+			struct pollfd pc = { .fd = cfg, .events = POLLIN };
+			if (poll(&pc, 1, 0) <= 0)
+				break;
+			struct msm_stats_event_ctrl se;
+			memset(&se, 0, sizeof(se));
+			se.timeout_ms = 0;
+			se.stats_event.len = sizeof(evbuf);
+			se.stats_event.data = evbuf;
+			if (ioctl(cfg, MSM_CAM_IOCTL_GET_STATS, &se) < 0)
+				break;
+		}
 	}
 
 	printf("кадров: %d\n", frames);

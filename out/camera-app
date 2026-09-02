@@ -148,6 +148,27 @@ def apply_filter(img, name):
     return img
 
 
+PW, PH = 324, 243                     # кадр превью от campreview
+PV_LEN = PW * PH * 3
+
+
+def preview_rgb(d):
+    """Кадр /tmp/preview.rgb -> картинка под окно (464 px по ширине).
+
+    Лёгкая проявка: вычет чёрного, баланс белого «серый мир», растяжка
+    по 99.5-му процентилю, гамма. Без S-кривой и резкости — на 6 кадрах
+    в секунду телефону и так хватает работы.
+    """
+    f = d[:PV_LEN].reshape(PH, PW, 3).astype(np.float32)
+    f = np.maximum(f - float(np.percentile(f, 0.5)), 0)
+    m = f.mean()
+    for c in range(3):
+        f[..., c] *= m / max(float(f[..., c].mean()), 1.0)
+    hi = max(float(np.percentile(f, 99.5)), 8.0)
+    out = (np.clip(f / hi, 0, 1) ** (1 / 2.2) * 255).astype("uint8")
+    return Image.fromarray(out).resize((464, 348), Image.BILINEAR)
+
+
 def preview_tone(g):
     """Проявка для превью: мягкая, без вытягивания тёмного в шум.
 
@@ -234,14 +255,63 @@ class Camera:
         self.vbtn.pack(side="left", fill="both", padx=(4, 0), ipadx=10)
         root.after(300, lambda: root.geometry("480x776+0+24"))
         self.pv_proc = None
+        self.pv_mtime = 0
+        self.pv_hold = 0          # до этого времени превью не перекрывает снимок
+        self.busy = False
         root.protocol("WM_DELETE_WINDOW", self.quit)
+        root.after(400, self.pv_start)
+        root.after(600, self.pv_tick)
+
+    # ── живое превью ──────────────────────────────────────────────────
+    # campreview держит непрерывный поток VFE с возвратом буферов
+    # (единственный стабильный режим) и кладёт цветной кадр 324x243 в
+    # /tmp/preview.rgb. На время снимка/видео поток гасим: камера строго
+    # однопользовательская, второй стек параллельно роняет ядро.
+    def pv_start(self):
+        if self.pv_proc and self.pv_proc.poll() is None:
+            return
+        try:
+            self.pv_proc = subprocess.Popen(
+                ["/usr/local/bin/campreview", "3600", "120", "900", "0", "0"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self.status.config(text="превью: %s" % str(e)[:50])
+
+    def pv_stop(self):
+        p = self.pv_proc
+        self.pv_proc = None
+        if not p or p.poll() is not None:
+            return
+        p.terminate()                 # SIGTERM -> STOP потока и закрытие
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        time.sleep(0.3)               # драйверу — отпустить устройство
+
+    def pv_tick(self):
+        try:
+            if not self.busy and time.time() >= self.pv_hold:
+                st = os.stat("/tmp/preview.rgb")
+                if st.st_mtime != self.pv_mtime and st.st_size == PV_LEN:
+                    self.pv_mtime = st.st_mtime
+                    img = preview_rgb(np.fromfile("/tmp/preview.rgb",
+                                                  dtype=np.uint8))
+                    self.photo = ImageTk.PhotoImage(img)
+                    self.view.config(image=self.photo, text="")
+        except (OSError, ValueError):
+            pass
+        self.root.after(150, self.pv_tick)
 
     def quit(self):
-        """Закрытие: снимаем блокировку камеры и гасим фонарь, если горел."""
+        """Закрытие: гасим поток превью и фонарь, если горел."""
+        self.busy = True
         try:
             torch(False)
         except Exception:
             pass
+        self.pv_stop()
         self.root.destroy()
 
     def mk(self, parent, cmd):
@@ -291,10 +361,14 @@ class Camera:
                         self.vbtn.config(text="сборка…")
                 self.root.after(0, countdown, 10)
                 self.log("видео: съёмка 10 с, потом сборка (~40 с)…")
-                # снимаем ЖИВЫМ потоком: превью продолжает работать,
-                # а кадры видео пишутся тем же процессом
-                subprocess.run(["/usr/local/bin/camsnap", "100", "1200",
-                                "10"], capture_output=True, timeout=120)
+                # снимаем ЖИВЫМ потоком тем же campreview: он пишет и
+                # кадры видео (5/с в /tmp/vid), и превью — картинка в
+                # окне продолжает двигаться во время записи
+                self.pv_stop()
+                subprocess.run(["/usr/local/bin/campreview", "11", "120",
+                                "900", "10", "0"],
+                               capture_output=True, timeout=60)
+                self.busy = True
                 r = subprocess.run(["/usr/local/bin/camvid", "10"],
                                    capture_output=True, text=True,
                                    timeout=300)
@@ -302,7 +376,9 @@ class Camera:
                 self.log(last[:60])
             except Exception as e:
                 self.log("ошибка видео: %s" % str(e)[:50])
+            self.busy = False
             self.root.after(0, lambda: (
+                self.pv_start(),
                 self.vbtn.config(state="normal", bg="#2c5aa4",
                                  text="🎥 Видео\n10 с"),
                 self.btn.config(state="normal")))
@@ -313,6 +389,9 @@ class Camera:
             for t in range(TIMERS[self.timer], 0, -1):
                 self.log("таймер: %d…" % t)
                 time.sleep(1)
+            # превью гасим только сейчас: во время отсчёта оно ещё живое
+            self.busy = True
+            self.pv_stop()
             mode = MODES[self.mode]
             if mode == "Ночь":
                 rgb = shoot_night(self.log)
@@ -327,9 +406,11 @@ class Camera:
             img.save(name, quality=92)
             small = img.copy()
             small.thumbnail((464, 560))
-            self.photo = ImageTk.PhotoImage(small)
+            shot = ImageTk.PhotoImage(small)
+            self.pv_hold = time.time() + 3       # 3 с показываем снимок
             self.root.after(0, lambda: (
-                self.view.config(image=self.photo, text=""),
+                setattr(self, "photo", shot),
+                self.view.config(image=shot, text=""),
                 self.status.config(text="сохранено: " +
                                    os.path.basename(name)),
                 self.btn.config(state="normal", bg=ACC, text="📷  Снимок")))
@@ -338,6 +419,8 @@ class Camera:
             self.root.after(0, lambda: (
                 self.status.config(text="ошибка: %s" % str(e)[:60]),
                 self.btn.config(state="normal", bg=RED, text="📷  Снимок")))
+        self.busy = False
+        self.root.after(0, self.pv_start)        # поток обратно
 
 
 if __name__ == "__main__":
