@@ -240,8 +240,10 @@ int main(void)
     sh.width = sh.min_width = sh.max_width = WIN_W;
     sh.height = sh.min_height = sh.max_height = WIN_H;
     XSetWMNormalHints(dpy, win, &sh);
+    // Button1MotionMask, а НЕ PointerMotionMask: иначе движение без
+    // нажатия прокручивает список, и следующий тап попадает не в ту плитку
     XSelectInput(dpy, win, ExposureMask | ButtonPressMask |
-                 ButtonReleaseMask | PointerMotionMask);
+                 ButtonReleaseMask | Button1MotionMask);
     XMapWindow(dpy, win);
 
     buf = XCreatePixmap(dpy, win, WIN_W, WIN_H, DefaultDepth(dpy, scr));
@@ -284,6 +286,8 @@ int main(void)
                     moved = 0;
                 }
             } else if (e.type == MotionNotify) {
+                if (!(e.xmotion.state & Button1Mask))
+                    continue;          // палец не прижат — не прокручиваем
                 int dy = e.xmotion.y - press_y;
                 if (dy > 12 || dy < -12) {
                     moved = 1;

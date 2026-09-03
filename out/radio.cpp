@@ -144,7 +144,8 @@ static void audio_ioctl(int nr, unsigned arg)
 
 static void writef(const char *path, const char *val)
 {
-    int fd = open(path, O_WRONLY);
+    // O_TRUNC обязателен: без него «90» поверх «100» даёт «900»
+    int fd = open(path, O_WRONLY | O_TRUNC);
     if (fd < 0)
         return;
     if (write(fd, val, strlen(val)) < 0) { }
