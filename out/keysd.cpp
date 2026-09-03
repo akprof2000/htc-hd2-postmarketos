@@ -196,7 +196,8 @@ int main(void)
 
     double btn_off_at = 0, press_at[512] = {0};
     double last_touch = now_s(), last_kbd_check = 0;
-    int dark = 0, hung_up = 0, kbd_want_last = -1;
+    int dark = 0, hung_up = 0, kbd_want_last = -1, touched = 0;
+    double last_kbd_show = 0;
 
     for (;;) {
         fd_set fds;
@@ -267,6 +268,7 @@ int main(void)
             struct input_event ev;
             if (read(tfd, &ev, sizeof(ev)) > 0) { }
             last_touch = now_s();
+            touched = 1;                       // для показа клавиатуры
             if (dark) {                        // просыпаемся
                 writef(BL, "180");
                 ioctl(tfd, EVIOCGRAB, 0);
@@ -310,14 +312,20 @@ int main(void)
                 for (int i = 0; TYPING[i]; i++)
                     if (cls.find(TYPING[i]) != std::string::npos)
                         want = 1;
+                int on = system("pgrep -f 'bin/rukbd' >/dev/null 2>&1") == 0;
                 if (want != kbd_want_last) {
                     kbd_want_last = want;
-                    int on = system("pgrep -f 'bin/rukbd' >/dev/null 2>&1") == 0;
                     if (want && !on)
                         sh("DISPLAY=:0 /usr/local/bin/kbd");
                     else if (!want && on)
                         sh("pkill -f 'bin/rukbd'");
+                } else if (want && !on && touched && t - last_kbd_show > 2) {
+                    // клавиатуру закрыли вручную, а человек снова тапнул
+                    // по полю ввода — показываем её опять
+                    last_kbd_show = t;
+                    sh("DISPLAY=:0 /usr/local/bin/kbd");
                 }
+                touched = 0;
             }
         }
     }

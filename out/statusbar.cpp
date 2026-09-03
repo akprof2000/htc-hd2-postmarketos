@@ -265,6 +265,10 @@ int main(void)
     ch.res_name = (char *)"statusbar";
     ch.res_class = (char *)"Statusbar";
     XSetClassHint(dpy, win, &ch);
+    // InputHint=False СТАВИТЬ НЕЛЬЗЯ: IceWM тогда не доставляет полоске
+    // нажатия вовсе (проверено — ни крестик, ни шторка не отзывались).
+    // Подмену цели крестика решаем иначе: номер окна запоминается только
+    // для настоящего приложения, см. ниже.
     XSizeHints sh_;
     sh_.flags = PPosition | PSize | PMinSize | PMaxSize;
     sh_.x = 0; sh_.y = 0;
@@ -331,9 +335,14 @@ int main(void)
             t = title;                 // служебные окна заголовок не меняют
         else if (t == "Домой")
             t = "";
-        if (a != active || t != title) {
+        // номер окна запоминаем ТОЛЬКО для настоящего приложения:
+        // служебные окна не должны становиться целью крестика
+        if (!t.empty() && t != title) {
             active = a;
             title = t;
+        } else if (t.empty() && win_name(a) == "Домой") {
+            active = 0;
+            title = "";
         }
         // медленные проверки — раз в 30 с
         time_t now = time(NULL);
