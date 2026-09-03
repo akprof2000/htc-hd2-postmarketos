@@ -97,8 +97,11 @@ class Radio:
             self.khz = int(open("/run/fm").read().strip()) or 96800
         except (OSError, ValueError):
             self.khz = 96800
-        self.presets = self.load_list(PRESETS_FILE, 6)
-        self.stations = [k for k in self.load_list(STATIONS_FILE, 40) if k]
+        # единый список станций; старые пресеты подхватываем один раз
+        self.stations = sorted(set(
+            k for k in self.load_list(STATIONS_FILE, 60) if k) |
+            set(k for k in self.load_list(PRESETS_FILE, 6) if k))
+        self.page = 0
 
         self.freq_lbl = tk.Label(root, text="—", bg=BG, fg=FG,
                                  font=("DejaVu Sans", 54, "bold"))
@@ -125,8 +128,15 @@ class Radio:
         self.scan_btn = self.key(row2, "Обзор диапазона", self.scan_start)
         self.key(row2, "Частота", self.keypad)
 
-        tk.Label(root, text="Пресеты — долгий тап сохраняет", bg=BG, fg=DIM,
-                 font=("DejaVu Sans", 11)).pack(pady=(12, 2))
+        row3 = tk.Frame(root, bg=BG)
+        row3.pack(fill="x", padx=10, pady=(10, 0))
+        self.key(row3, "◀", lambda: self.flip(-1))
+        self.key(row3, "+ запомнить", self.remember)
+        self.key(row3, "▶", lambda: self.flip(+1))
+        self.key(row3, "очистить", self.clear_all)
+        self.hint = tk.Label(root, text="", bg=BG, fg=DIM,
+                             font=("DejaVu Sans", 10))
+        self.hint.pack(pady=(6, 2))
         grid = tk.Frame(root, bg=BG)
         grid.pack(fill="x", padx=10)
         self.pbtn = []
@@ -287,19 +297,9 @@ class Radio:
             self._scan_job = None
         self.scan_btn.config(bg=KEY, text="Обзор диапазона")
         if save:
-            if self.khz not in self.stations:
-                self.stations = sorted(self.stations + [self.khz])
-                self.save_list(STATIONS_FILE, self.stations)
-            free = [i for i, p in enumerate(self.presets) if not p]
-            if free:
-                self.presets[free[0]] = self.khz
-                self.save_list(PRESETS_FILE, self.presets)
-                self.status.config(text="запомнено: %.1f -> пресет %d"
-                                        % (self.khz / 1000.0, free[0] + 1))
-            else:
-                self.status.config(text="запомнено: %.1f (пресеты заняты)"
-                                        % (self.khz / 1000.0))
-        self.paint()
+            self.remember()
+        else:
+            self.paint()
 
     # ── ручной ввод частоты ───────────────────────────────────────────
     def keypad(self):
@@ -361,7 +361,9 @@ class Radio:
             b.pack(side="left", expand=True, fill="both", padx=3)
             b.bind("<Button-1>", lambda e, cb=cb: cb())
 
-    # ── пресеты ───────────────────────────────────────────────────────
+    # ── список станций ────────────────────────────────────────────
+    PER_PAGE = 6
+
     def load_list(self, path, n):
         out = [0] * n
         try:
@@ -377,22 +379,79 @@ class Radio:
         except OSError:
             pass
 
+    def save_stations(self):
+        self.stations = sorted(set(self.stations))
+        self.save_list(STATIONS_FILE, self.stations)
+
+    def pages(self):
+        return max(1, (len(self.stations) + self.PER_PAGE - 1) //
+                   self.PER_PAGE)
+
+    def flip(self, d):
+        self.page = (self.page + d) % self.pages()
+        self.paint()
+
+    def remember(self):
+        if self.khz in self.stations:
+            self.status.config(text="%.1f уже в списке"
+                                    % (self.khz / 1000.0))
+        else:
+            self.stations.append(self.khz)
+            self.save_stations()
+            self.page = self.stations.index(self.khz) // self.PER_PAGE
+            self.status.config(text="запомнено %.1f (всего %d)"
+                                    % (self.khz / 1000.0, len(self.stations)))
+        self.paint()
+
+    def clear_all(self):
+        """Первый тап предупреждает, второй подряд — чистит."""
+        if getattr(self, "_clear_armed", False):
+            self._clear_armed = False
+            self.stations = []
+            self.page = 0
+            self.save_stations()
+            self.save_list(PRESETS_FILE, [])
+            self.status.config(text="список станций очищен")
+        else:
+            self._clear_armed = True
+            self.status.config(text="нажмите «очистить» ещё раз для сброса")
+            self.root.after(4000, self.disarm_clear)
+        self.paint()
+
+    def disarm_clear(self):
+        if getattr(self, "_clear_armed", False):
+            self._clear_armed = False
+            self.status.config(text="сброс отменён")
+
+    def slot_freq(self, i):
+        idx = self.page * self.PER_PAGE + i
+        return self.stations[idx] if idx < len(self.stations) else 0
+
     def press(self, i):
-        self._hold = self.root.after(700, lambda: self.store(i))
+        self._hold = self.root.after(700, lambda: self.remove(i))
 
     def release(self, i):
         if getattr(self, "_hold", None):
             self.root.after_cancel(self._hold)
             self._hold = None
-            if self.presets[i]:
-                self.tune(self.presets[i])
+            f = self.slot_freq(i)
+            if f:
+                self.tune(f)
+            else:
+                self.remember()
 
-    def store(self, i):
+    def remove(self, i):
+        """Долгий тап — убрать станцию из списка."""
         self._hold = None
-        self.presets[i] = self.khz
-        self.save_list(PRESETS_FILE, self.presets)
-        self.status.config(text="пресет %d = %.1f"
-                                % (i + 1, self.khz / 1000.0))
+        f = self.slot_freq(i)
+        if not f:
+            return
+        self.stations.remove(f)
+        self.save_stations()
+        if self.page >= self.pages():
+            self.page = self.pages() - 1
+        self.status.config(text="удалено %.1f (осталось %d)"
+                                % (f / 1000.0, len(self.stations)))
         self.paint()
 
     # ── отрисовка ─────────────────────────────────────────────────────
@@ -417,9 +476,13 @@ class Radio:
         x = (self.khz - BAND[0]) * 460 / (BAND[1] - BAND[0])
         c.create_line(x, 0, x, 56, fill="#e0a030", width=3)
         for i, b in enumerate(self.pbtn):
-            p = self.presets[i]
-            b.config(text="%.1f" % (p / 1000.0) if p else "·",
-                     bg=ACC if p and p == self.khz else KEY)
+            f = self.slot_freq(i)
+            b.config(text="%.1f" % (f / 1000.0) if f else "+",
+                     bg=ACC if f and f == self.khz else KEY,
+                     fg=FG if f else DIM)
+        self.hint.config(text="%d станций · %d/%d · долгий тап удаляет"
+                              % (len(self.stations), self.page + 1,
+                                 self.pages()))
         self.power.config(text="Выключить" if self.on else "Включить",
                           bg=RED if self.on else ACC)
 
