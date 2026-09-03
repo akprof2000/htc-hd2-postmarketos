@@ -13,6 +13,7 @@ import fcntl
 import os
 import runpy
 import struct
+import sys
 import subprocess
 import threading
 import tkinter as tk
@@ -230,17 +231,30 @@ class Radio:
         khz = max(BAND[0], min(BAND[1], int(round(khz / 100.0)) * 100))
         self.khz = khz
         if self.on:
-            try:
-                with self.lock:
-                    self.fm["tune"](self.s, khz)
-            except Exception as e:
-                self.status.config(text="ошибка настройки: %s" % str(e)[:40])
+            # Перестройка в фоне и на СВЕЖЕМ соединении с приёмником:
+            # из давно открытого сокета регистры принимают частоту, а
+            # эфир не меняется (проверено на слух). В основном потоке
+            # этого делать нельзя — 0.6 с, окно бы подвисало.
+            threading.Thread(target=self.tune_hw, args=(khz,),
+                             daemon=True).start()
         try:
             open("/run/fm", "w").write(str(khz))
         except OSError:
             pass
         if not quiet:
             self.paint()
+
+    def tune_hw(self, khz):
+        with self.lock:
+            try:
+                s2 = self.fm["open_hci"]()
+                try:
+                    self.fm["tune"](s2, khz)
+                finally:
+                    s2.close()
+            except Exception as e:
+                self.root.after(0, self.status.config,
+                                {"text": "настройка: %s" % str(e)[:40]})
 
     def hop(self, d):
         """По найденным станциям; пока их нет — шагом 1 МГц."""
@@ -487,18 +501,12 @@ class Radio:
                           bg=RED if self.on else ACC)
 
     def tick(self):
-        if self.on and not self.scanning:
-            try:
-                with self.lock:
-                    fl = self.fm["rd"](self.s, R_FLAG0, 2)
-                    lvl = self.fm["rd"](self.s, R_RSSI)
-                n = min(5, max(0, lvl - 0x90))
-                self.info.config(text="%s   сигнал %s" % (
-                    "стерео" if fl & 0x40 else "моно",
-                    "#" * n + "-" * (5 - n)))
-            except Exception:
-                pass
-        self.root.after(1500, self.tick)
+        # Регистры больше НЕ опрашиваем: уровень и стерео этот чип не
+        # отдаёт (всегда 0x90 / нет пилота), а лишние обращения к нему
+        # во время работы подозреваются в срыве перестройки.
+        self.info.config(text="наушники работают антенной"
+                              if self.on else "радио выключено")
+        self.root.after(3000, self.tick)
 
     def quit(self):
         self.scan_stop()
