@@ -142,7 +142,7 @@ def main():
         bars = "".join("▁▂▃▄▅"[i] if i < n else "·" for i in range(5))
         net = read("/run/phone/net").split()
         # медленные проверки — раз в 30 с
-        if slow["n"] % 20 == 0:      # раз в 30 с при опросе 1.5 с
+        if slow["n"] % 12 == 0:      # раз в 30 с при опросе 2.5 с
             slow["wifi"] = wifi_up()
             slow["alarm"] = alarm_set()
         slow["n"] += 1
@@ -180,7 +180,7 @@ def main():
         root.attributes("-topmost", True)
         root.lift()                      # окна WM иначе накрывают полоску
         root.geometry("480x%d+0+0" % H)
-        root.after(1500, tick)       # заголовок/крестик без заметной задержки
+        root.after(2500, tick)       # чаще нельзя: xdotool на каждый тик
 
     tick()
     root.mainloop()

@@ -8,6 +8,7 @@
     домик (KEY_HOME 102) и Windows (KEY_MENU 139) — домашний экран
     назад (KEY_BACK 158)    — закрыть активное окно (кроме «Домой»)
 """
+import fcntl
 import os
 import struct
 import subprocess
@@ -82,6 +83,23 @@ def flash_buttons():
     _bl_timer[0].start()
 
 
+def show_vol_osd(vol):
+    """OSD громкости рисует резидент шторки — это мгновенно.
+
+    Если резидента нет, поднимаем прежнее отдельное окно (медленно,
+    ~3 с на запуск Python).
+    """
+    try:
+        fd = os.open("/run/shade.fifo", os.O_WRONLY | os.O_NONBLOCK)
+        try:
+            os.write(fd, ("vol %d" % vol).encode() + bytes([10]))
+            return
+        finally:
+            os.close(fd)
+    except OSError:
+        sh("DISPLAY=:0 /usr/local/bin/volosd")
+
+
 def fm_active():
     """Радио включено? Флаг ставит radio-app при включении приёмника."""
     try:
@@ -116,7 +134,7 @@ def volume_step(delta):
             f.write(str(vol))
     except OSError:
         pass
-    sh("DISPLAY=:0 /usr/local/bin/volosd")
+    show_vol_osd(vol)
     if fm_active():
         # радио: блик в динамик переключил бы выход с наушников и порвал
         # аналоговую петлю FM — меняем только громкость тракта

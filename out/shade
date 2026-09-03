@@ -140,6 +140,37 @@ class Shade:
         except tk.TclError:
             pass
 
+    def vol_osd(self, vol):
+        """Полоска громкости поверх всего на 1.2 с (окно готово заранее)."""
+        try:
+            w = getattr(self, "_vol_win", None)
+            if w is None:
+                w = tk.Toplevel(self.root, bg=KEY)
+                w.title("volosd")
+                w.overrideredirect(False)
+                w.geometry("300x86+90+330")
+                w.withdraw()
+                self._vol_lbl = tk.Label(w, text="", bg=KEY, fg=FG,
+                                         font=("DejaVu Sans", 15, "bold"))
+                self._vol_lbl.pack(pady=(12, 2))
+                self._vol_bar = tk.Canvas(w, width=260, height=18, bg=BG,
+                                          highlightthickness=0)
+                self._vol_bar.pack()
+                self._vol_win = w
+            self._vol_lbl.config(text="Громкость %d%%" % vol)
+            c = self._vol_bar
+            c.delete("all")
+            c.create_rectangle(0, 0, 260 * max(0, min(100, vol)) / 100.0, 18,
+                               fill=ACC, outline="")
+            w.deiconify()
+            w.attributes("-topmost", True)
+            w.lift()
+            if getattr(self, "_vol_job", None):
+                self.root.after_cancel(self._vol_job)
+            self._vol_job = self.root.after(1200, w.withdraw)
+        except tk.TclError:
+            pass
+
     def show(self):
         """Показать шторку заново (данные обновляем, окно уже готово)."""
         try:
@@ -299,7 +330,12 @@ def daemon():
                 cmd = os.read(fd, 64).decode(errors="replace")
             except OSError:
                 cmd = ""
-            if "show" in cmd:
+            if cmd.startswith("vol"):
+                try:
+                    app.vol_osd(int(cmd.split()[1]))
+                except (IndexError, ValueError):
+                    pass
+            elif "show" in cmd:
                 app.show()
             elif "hide" in cmd:
                 app.close()

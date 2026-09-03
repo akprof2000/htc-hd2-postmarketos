@@ -109,9 +109,26 @@ def fm_off(s):
 
 
 def tune(s, khz):
-    wr(s, R_FREQ0, (khz - FREQ_BASE) // 10, 2)
-    wr(s, R_SEARCH_TUNE_MODE, TUNE_PRESET)
+    """Перестройка: частота пишется при ВЫКЛЮЧЕННОМ питании FM.
+
+    Единственный способ, который этот чип понимает (проверено на слух):
+    запись 0x0a/0x0b при включённом приёмнике он принимает в регистр, но
+    физически остаётся на прежней волне. Поэтому: питание FM выключить,
+    записать частоту, включить — и подтвердить preset-настройкой.
+    """
+    v = (khz - FREQ_BASE) // 10
+    wr(s, R_RDS_SYSTEM, 0x00)
     time.sleep(0.15)
+    wr(s, R_FREQ0, v & 0xff)                # двумя отдельными байтами
+    wr(s, R_FREQ1, (v >> 8) & 0xff)
+    wr(s, R_FM_CTRL, 0x06)                  # Европа, стерео + авто
+    wr(s, R_RDS_SYSTEM, 0x01)               # включаем — частота подхватится
+    time.sleep(0.1)
+    wr(s, R_AUDIO_CTRL0, 0x001c, 2)         # 50 мкс, DAC L+R, без mute
+    wr(s, 0x4d, 0x40)                       # аналоговый выход
+    wr(s, R_AUDIO_PAUSE, 0)
+    wr(s, R_SEARCH_TUNE_MODE, TUNE_PRESET)
+    time.sleep(0.35)
 
 
 def freq(s):
