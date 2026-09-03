@@ -82,6 +82,28 @@ def flash_buttons():
     _bl_timer[0].start()
 
 
+def fm_active():
+    """Радио включено? Флаг ставит radio-app при включении приёмника."""
+    try:
+        with open("/sys/class/htc_accessory/fm/flag") as f:
+            return f.read().strip() == "fm_headset"
+    except OSError:
+        return False
+
+
+def set_hw_volume(vol):
+    """AUDIO_SET_VOLUME без переключения устройства."""
+    try:
+        fd = os.open("/dev/msm_audio_ctl", os.O_RDWR)
+        try:
+            code = (1 << 30) | (4 << 16) | (ord("a") << 8) | 10
+            fcntl.ioctl(fd, code, struct.pack("I", max(0, min(100, vol))))
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
 def volume_step(delta):
     """Качелька громкости: шаг 10%, OSD и блик на новой громкости."""
     try:
@@ -94,8 +116,13 @@ def volume_step(delta):
             f.write(str(vol))
     except OSError:
         pass
-    at("@vol %d" % vol)                  # громкость тракта (и в разговоре)
     sh("DISPLAY=:0 /usr/local/bin/volosd")
+    if fm_active():
+        # радио: блик в динамик переключил бы выход с наушников и порвал
+        # аналоговую петлю FM — меняем только громкость тракта
+        set_hw_volume(vol)
+        return
+    at("@vol %d" % vol)                  # громкость тракта (и в разговоре)
     if state() == "idle" and vol > 0:    # блик слышен как раз на новом уровне
         sh("/usr/local/bin/beep s %d" % vol)
 
