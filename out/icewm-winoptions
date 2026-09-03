@@ -48,5 +48,4 @@ Xfce4-terminal.geometry: 480x776+0+24
 
 # клавиатура и служебные окна не должны забирать фокус и по клику
 rukbd.doNotFocus: 1
-statusbar.doNotFocus: 1
 volosd.doNotFocus: 1

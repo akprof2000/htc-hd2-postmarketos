@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""FM-радио HTC HD2 (приёмник в BCM4329, звук — наушники как антенна).
+"""FM-радио HTC HD2 (приёмник в BCM4329, антенна — кабель наушников).
 
-Управление приёмником — /usr/local/bin/fmctl (регистры по HCI), звук —
-ioctl AUDIO_START_FM(37)/STOP_FM(38) на /dev/msm_audio_ctl: аналоговая
-петля FM -> кодек -> наушники. Кнопки — Label (Button в этом Tk пустые).
+Регистры приёмника — через /usr/local/bin/fmctl (vendor-команды HCI),
+звук — ioctl AUDIO_START_FM(37) на /dev/msm_audio_ctl: аналоговая петля
+FM -> кодек -> наушники.
+
+Важно: приёмник живёт в том же чипе, что Bluetooth, и оживает только
+после свежей инициализации чипа (btsetup) — приложение делает её само.
+Кнопки — Label с bind: настоящие tk.Button в этом Tk рисуются пустыми.
 """
 import fcntl
 import os
 import runpy
 import struct
 import subprocess
+import threading
 import tkinter as tk
 
 BG, FG, DIM, KEY, ACC, RED = ("#101828", "#e8eef5", "#7c8794", "#1c2a40",
                               "#1f7a33", "#a4262c")
 PRESETS_FILE = "/root/.fm-presets"
+STATIONS_FILE = "/root/.fm-stations"
 DEV_HEADSET = 0x107ac8a
 BAND = (87500, 108000)
+R_RSSI, R_FLAG0 = 0x0f, 0x12
 
 
 def audio_ioctl(n, arg=0):
@@ -41,7 +48,6 @@ def fm_flag(val):
 
 
 def bt_up():
-    """Приёмник в том же чипе, что Bluetooth: без поднятого hci0 он молчит."""
     try:
         out = subprocess.run(["hciconfig", "hci0"], capture_output=True,
                              text=True, timeout=5).stdout
@@ -57,6 +63,24 @@ def headset_in():
         return 0
 
 
+def peaks(profile, min_rise=3, min_gap=400):
+    """Вершины профиля -> частоты станций.
+
+    profile: [(кГц, уровень)]. Станция шире шага сканирования, поэтому
+    берём самые сильные точки и сливаем всё, что ближе min_gap.
+    """
+    if not profile:
+        return []
+    noise = min(v for _, v in profile)
+    cand = sorted(((v, k) for k, v in profile if v >= noise + min_rise),
+                  reverse=True)
+    out = []
+    for v, k in cand:
+        if all(abs(k - k2) >= min_gap for _, k2 in out):
+            out.append((v, k))
+    return out
+
+
 class Radio:
     def __init__(self, root):
         self.root = root
@@ -64,43 +88,51 @@ class Radio:
         root.configure(bg=BG)
         root.geometry("480x776+0+24")
         self.fm = runpy.run_path("/usr/local/bin/fmctl")
+        self.lock = threading.Lock()      # сокет HCI один: доступ по очереди
         self.s = None
         self.on = False
+        self.scanning = False
+        self.vol = 100
         try:
             self.khz = int(open("/run/fm").read().strip()) or 96800
         except (OSError, ValueError):
             self.khz = 96800
-        self.presets = self.load_presets()
+        self.presets = self.load_list(PRESETS_FILE, 6)
+        self.stations = [k for k in self.load_list(STATIONS_FILE, 40) if k]
 
-        self.freq_lbl = tk.Label(root, text="—", font=("DejaVu Sans", 56, "bold"),
-                                 bg=BG, fg=FG)
-        self.freq_lbl.pack(pady=(28, 0))
-        self.info = tk.Label(root, text="наушники — это антенна",
-                             font=("DejaVu Sans", 12), bg=BG, fg=DIM)
+        self.freq_lbl = tk.Label(root, text="—", bg=BG, fg=FG,
+                                 font=("DejaVu Sans", 54, "bold"))
+        self.freq_lbl.pack(pady=(20, 0))
+        self.info = tk.Label(root, text="наушники — это антенна", bg=BG,
+                             fg=DIM, font=("DejaVu Sans", 12))
         self.info.pack()
 
-        # шкала: тап — настройка на частоту
-        self.scale = tk.Canvas(root, width=460, height=54, bg=KEY,
+        self.scale = tk.Canvas(root, width=460, height=56, bg=KEY,
                                highlightthickness=0)
-        self.scale.pack(pady=(0, 10))
+        self.scale.pack(pady=(6, 8))
         self.scale.bind("<Button-1>", self.tap_scale)
         self.scale.bind("<B1-Motion>", self.tap_scale)
 
         row = tk.Frame(root, bg=BG)
         row.pack(fill="x", padx=10)
-        # аппаратный поиск не используется: уровень сигнала этот чип отдаёт
-        # слабо различимым (0x90 тишина … 0x93 станция) — настройка ручная
-        for txt, d in (("◀◀", -1000), ("◀", -100), ("▶", +100), ("▶▶", +1000)):
-            self.key(row, txt, lambda d=d: self.tune(self.khz + d))
+        self.key(row, "◀◀", lambda: self.hop(-1))
+        self.key(row, "◀", lambda: self.tune(self.khz - 100))
+        self.key(row, "▶", lambda: self.tune(self.khz + 100))
+        self.key(row, "▶▶", lambda: self.hop(+1))
 
-        tk.Label(root, text="Пресеты — долгий тап сохраняет",
-                 font=("DejaVu Sans", 11), bg=BG, fg=DIM).pack(pady=(14, 2))
+        row2 = tk.Frame(root, bg=BG)
+        row2.pack(fill="x", padx=10, pady=(6, 0))
+        self.scan_btn = self.key(row2, "Обзор диапазона", self.scan_start)
+        self.key(row2, "Частота", self.keypad)
+
+        tk.Label(root, text="Пресеты — долгий тап сохраняет", bg=BG, fg=DIM,
+                 font=("DejaVu Sans", 11)).pack(pady=(12, 2))
         grid = tk.Frame(root, bg=BG)
         grid.pack(fill="x", padx=10)
         self.pbtn = []
         for i in range(6):
-            b = tk.Label(grid, text="", font=("DejaVu Sans", 14, "bold"),
-                         bg=KEY, fg=FG, pady=12)
+            b = tk.Label(grid, text="", bg=KEY, fg=FG, pady=11,
+                         font=("DejaVu Sans", 14, "bold"))
             b.grid(row=i // 3, column=i % 3, padx=3, pady=3, sticky="nsew")
             b.bind("<ButtonPress-1>", lambda e, i=i: self.press(i))
             b.bind("<ButtonRelease-1>", lambda e, i=i: self.release(i))
@@ -109,33 +141,32 @@ class Radio:
             grid.columnconfigure(c, weight=1)
 
         vol = tk.Frame(root, bg=BG)
-        vol.pack(fill="x", padx=10, pady=(14, 0))
+        vol.pack(fill="x", padx=10, pady=(12, 0))
         self.key(vol, "тише", lambda: self.volume(-15))
         self.key(vol, "громче", lambda: self.volume(+15))
-        self.vol = 100
 
-        self.power = tk.Label(root, text="", font=("DejaVu Sans", 17, "bold"),
-                              bg=ACC, fg="white", pady=16)
-        self.power.pack(fill="x", padx=10, pady=(14, 0), side="bottom")
+        self.power = tk.Label(root, text="", bg=ACC, fg="white", pady=15,
+                              font=("DejaVu Sans", 17, "bold"))
+        self.power.pack(fill="x", padx=10, pady=(10, 0), side="bottom")
         self.power.bind("<Button-1>", lambda e: self.toggle())
-        self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
-                               bg=BG, fg=DIM)
-        self.status.pack(side="bottom", pady=4)
+        self.status = tk.Label(root, text="", bg=BG, fg=DIM,
+                               font=("DejaVu Sans", 11))
+        self.status.pack(side="bottom", pady=3)
 
         self.paint()
         root.protocol("WM_DELETE_WINDOW", self.quit)
         root.after(300, lambda: root.geometry("480x776+0+24"))
         root.after(500, self.start)
-        root.after(1500, self.tick)
+        root.after(1600, self.tick)
 
-    # ── приёмник ──────────────────────────────────────────────────────
     def key(self, parent, txt, cb):
-        b = tk.Label(parent, text=txt, font=("DejaVu Sans", 15, "bold"),
-                     bg=KEY, fg=FG, pady=12)
+        b = tk.Label(parent, text=txt, bg=KEY, fg=FG, pady=11,
+                     font=("DejaVu Sans", 14, "bold"))
         b.pack(side="left", expand=True, fill="both", padx=3)
         b.bind("<Button-1>", lambda e: cb())
         return b
 
+    # ── приёмник ──────────────────────────────────────────────────────
     def start(self):
         if not headset_in():
             self.status.config(text="вставьте наушники: без них нет антенны")
@@ -143,17 +174,16 @@ class Radio:
             return
         try:
             if not bt_up():
-                self.status.config(text="поднимаю чип (20 с)…")
+                self.status.config(text="поднимаю чип, ~20 с…")
                 self.root.update_idletasks()
                 subprocess.run(["/usr/local/bin/btsetup"], capture_output=True,
                                timeout=120)
-            self.s = self.fm["open_hci"]()
-            self.fm["fm_on"](self.s)
-            # аналоговая петля FM -> наушники; ядро помнит незакрытый сеанс
-            # (EBUSY), поэтому сначала гасим возможный старый
+            with self.lock:
+                self.s = self.fm["open_hci"]()
+                self.fm["fm_on"](self.s)
             audio_ioctl(32, DEV_HEADSET)
             try:
-                audio_ioctl(38)
+                audio_ioctl(38)          # закрыть возможный старый сеанс
             except OSError:
                 pass
             audio_ioctl(37)
@@ -163,15 +193,16 @@ class Radio:
             self.tune(self.khz)
             self.status.config(text="радио включено")
         except Exception as e:
-            self.status.config(text="нет Bluetooth-стека: %s" % str(e)[:40])
             self.on = False
+            self.status.config(text="не поднялось: %s" % str(e)[:44])
         self.paint()
 
     def stop(self):
         if self.on:
             try:
                 audio_ioctl(38)
-                self.fm["fm_off"](self.s)
+                with self.lock:
+                    self.fm["fm_off"](self.s)
                 fm_flag("disable")
             except Exception:
                 pass
@@ -185,19 +216,34 @@ class Radio:
         else:
             self.start()
 
-    def tune(self, khz):
-        khz = max(BAND[0], min(BAND[1], (khz // 100) * 100))
+    def tune(self, khz, quiet=False):
+        khz = max(BAND[0], min(BAND[1], int(round(khz / 100.0)) * 100))
         self.khz = khz
         if self.on:
             try:
-                self.fm["tune"](self.s, khz)
+                with self.lock:
+                    self.fm["tune"](self.s, khz)
             except Exception as e:
-                self.status.config(text="ошибка: %s" % str(e)[:40])
+                self.status.config(text="ошибка настройки: %s" % str(e)[:40])
         try:
-            open("/run/fm", "w").write(str(khz))   # помним между запусками
+            open("/run/fm", "w").write(str(khz))
         except OSError:
             pass
-        self.paint()
+        if not quiet:
+            self.paint()
+
+    def hop(self, d):
+        """По найденным станциям; пока их нет — шагом 1 МГц."""
+        if not self.stations:
+            self.tune(self.khz + d * 1000)
+            return
+        st = sorted(self.stations)
+        later = [k for k in st if k > self.khz + 50]
+        earlier = [k for k in st if k < self.khz - 50]
+        if d > 0:
+            self.tune(later[0] if later else st[0])
+        else:
+            self.tune(earlier[-1] if earlier else st[-1])
 
     def volume(self, d):
         self.vol = max(0, min(100, self.vol + d))
@@ -207,19 +253,127 @@ class Radio:
             pass
         self.status.config(text="громкость %d%%" % self.vol)
 
+    # ── обзор диапазона на слух ────────────────────────────────────
+    # Автоматический поиск невозможен: этот чип не отдаёт ни уровня
+    # сигнала, ни пилота стерео, ни RDS, а его собственный поиск всегда
+    # рапортует «станции нет» (проверено). Поэтому — как SCAN в машине:
+    # приёмник сам идёт по диапазону, слушает человек.
+    DWELL = 2200                       # мс на частоту
+
+    def scan_start(self):
+        if not self.on:
+            return
+        if self.scanning:
+            self.scan_stop(save=True)
+            return
+        self.scanning = True
+        self.scan_btn.config(bg=RED, text="СТОП — это станция")
+        self.status.config(text="обзор: слушайте, нажмите СТОП на станции")
+        self.scan_step()
+
+    def scan_step(self):
+        if not self.scanning:
+            return
+        nxt = self.khz + 100
+        if nxt > BAND[1]:
+            nxt = BAND[0]
+        self.tune(nxt)
+        self._scan_job = self.root.after(self.DWELL, self.scan_step)
+
+    def scan_stop(self, save=False):
+        self.scanning = False
+        if getattr(self, "_scan_job", None):
+            self.root.after_cancel(self._scan_job)
+            self._scan_job = None
+        self.scan_btn.config(bg=KEY, text="Обзор диапазона")
+        if save:
+            if self.khz not in self.stations:
+                self.stations = sorted(self.stations + [self.khz])
+                self.save_list(STATIONS_FILE, self.stations)
+            free = [i for i, p in enumerate(self.presets) if not p]
+            if free:
+                self.presets[free[0]] = self.khz
+                self.save_list(PRESETS_FILE, self.presets)
+                self.status.config(text="запомнено: %.1f -> пресет %d"
+                                        % (self.khz / 1000.0, free[0] + 1))
+            else:
+                self.status.config(text="запомнено: %.1f (пресеты заняты)"
+                                        % (self.khz / 1000.0))
+        self.paint()
+
+    # ── ручной ввод частоты ───────────────────────────────────────────
+    def keypad(self):
+        w = tk.Toplevel(self.root)
+        w.title("Частота")
+        w.configure(bg=BG)
+        w.geometry("300x392+90+180")
+        buf = {"s": ""}
+        lbl = tk.Label(w, text="---", bg=BG, fg=FG,
+                       font=("DejaVu Sans", 30, "bold"))
+        lbl.pack(pady=(14, 4))
+        tk.Label(w, text="например 101.7", bg=BG, fg=DIM,
+                 font=("DejaVu Sans", 10)).pack()
+
+        def show():
+            lbl.config(text=buf["s"] or "---")
+
+        def add(ch):
+            if len(buf["s"]) < 5:
+                buf["s"] += ch
+                show()
+
+        def back():
+            buf["s"] = buf["s"][:-1]
+            show()
+
+        def ok():
+            try:
+                khz = int(round(float(buf["s"]) * 1000))
+            except ValueError:
+                w.destroy()
+                return
+            if BAND[0] - 100 <= khz <= BAND[1] + 100:
+                self.tune(khz)
+                self.status.config(text="введено %.1f МГц" % (khz / 1000.0))
+            else:
+                self.status.config(text="вне диапазона 87.5-108.0")
+            w.destroy()
+
+        g = tk.Frame(w, bg=BG)
+        g.pack(expand=True, fill="both", padx=8, pady=8)
+        for r, rowk in enumerate((("1", "2", "3"), ("4", "5", "6"),
+                                  ("7", "8", "9"), (".", "0", "<"))):
+            for c, ch in enumerate(rowk):
+                cb = back if ch == "<" else (lambda ch=ch: add(ch))
+                b = tk.Label(g, text=ch, bg=KEY, fg=FG, pady=10,
+                             font=("DejaVu Sans", 18, "bold"))
+                b.grid(row=r, column=c, padx=3, pady=3, sticky="nsew")
+                b.bind("<Button-1>", lambda e, cb=cb: cb())
+            g.rowconfigure(r, weight=1)
+        for c in range(3):
+            g.columnconfigure(c, weight=1)
+        bar = tk.Frame(w, bg=BG)
+        bar.pack(fill="x", padx=8, pady=(0, 8))
+        for txt, cb, col in (("Отмена", w.destroy, KEY),
+                             ("Настроить", ok, ACC)):
+            b = tk.Label(bar, text=txt, bg=col, fg=FG, pady=10,
+                         font=("DejaVu Sans", 13, "bold"))
+            b.pack(side="left", expand=True, fill="both", padx=3)
+            b.bind("<Button-1>", lambda e, cb=cb: cb())
+
     # ── пресеты ───────────────────────────────────────────────────────
-    def load_presets(self):
-        p = [0] * 6
+    def load_list(self, path, n):
+        out = [0] * n
         try:
-            for i, ln in enumerate(open(PRESETS_FILE).read().split()[:6]):
-                p[i] = int(ln)
+            for i, t in enumerate(open(path).read().split()[:n]):
+                out[i] = int(t)
         except (OSError, ValueError):
             pass
-        return p
+        return out
 
-    def save_presets(self):
+    def save_list(self, path, vals):
         try:
-            open(PRESETS_FILE, "w").write(" ".join(map(str, self.presets)))
+            open(path, "w").write(" ".join(str(v) for v in vals))
         except OSError:
             pass
 
@@ -236,49 +390,55 @@ class Radio:
     def store(self, i):
         self._hold = None
         self.presets[i] = self.khz
-        self.save_presets()
-        self.status.config(text="пресет %d = %.1f" % (i + 1, self.khz / 1000))
+        self.save_list(PRESETS_FILE, self.presets)
+        self.status.config(text="пресет %d = %.1f"
+                                % (i + 1, self.khz / 1000.0))
         self.paint()
 
     # ── отрисовка ─────────────────────────────────────────────────────
     def tap_scale(self, e):
-        f = BAND[0] + (BAND[1] - BAND[0]) * max(0, min(460, e.x)) / 460
-        self.tune(int(f))
+        f = BAND[0] + (BAND[1] - BAND[0]) * max(0, min(460, e.x)) / 460.0
+        self.tune(f)
 
     def paint(self):
-        self.freq_lbl.config(text="%.1f" % (self.khz / 1000),
+        self.freq_lbl.config(text="%.1f" % (self.khz / 1000.0),
                              fg=FG if self.on else DIM)
         c = self.scale
         c.delete("all")
         for m in range(88, 108):
             x = (m * 1000 - BAND[0]) * 460 / (BAND[1] - BAND[0])
-            c.create_line(x, 34, x, 54 if m % 2 == 0 else 46, fill=DIM)
+            c.create_line(x, 34, x, 56 if m % 2 == 0 else 48, fill=DIM)
             if m % 4 == 0:
-                c.create_text(x, 14, text=str(m), fill=DIM,
+                c.create_text(x, 12, text=str(m), fill=DIM,
                               font=("DejaVu Sans", 10))
+        for k in self.stations:          # найденные станции — точками
+            x = (k - BAND[0]) * 460 / (BAND[1] - BAND[0])
+            c.create_oval(x - 3, 24, x + 3, 30, fill=ACC, outline="")
         x = (self.khz - BAND[0]) * 460 / (BAND[1] - BAND[0])
-        c.create_line(x, 0, x, 54, fill="#e0a030", width=3)
+        c.create_line(x, 0, x, 56, fill="#e0a030", width=3)
         for i, b in enumerate(self.pbtn):
-            b.config(text="%.1f" % (self.presets[i] / 1000) if self.presets[i]
-                     else "·", bg=ACC if self.presets[i] == self.khz and
-                     self.presets[i] else KEY)
-        self.power.config(text="⏻  Выключить" if self.on else "⏻  Включить",
+            p = self.presets[i]
+            b.config(text="%.1f" % (p / 1000.0) if p else "·",
+                     bg=ACC if p and p == self.khz else KEY)
+        self.power.config(text="Выключить" if self.on else "Включить",
                           bg=RED if self.on else ACC)
 
     def tick(self):
-        # уровень сигнала не показываем: регистр RSSI этого чипа всегда 0
-        if self.on:
+        if self.on and not self.scanning:
             try:
-                st = self.fm["rd"](self.s, 0x12, 2)
-                lvl = max(0, self.fm["rd"](self.s, 0x0f) - 0x90)
-                self.info.config(text="%s · сигнал %s" % (
-                    "стерео" if st & 0x40 else "моно",
-                    "▮" * min(5, lvl) + "▯" * (5 - min(5, lvl))))
+                with self.lock:
+                    fl = self.fm["rd"](self.s, R_FLAG0, 2)
+                    lvl = self.fm["rd"](self.s, R_RSSI)
+                n = min(5, max(0, lvl - 0x90))
+                self.info.config(text="%s   сигнал %s" % (
+                    "стерео" if fl & 0x40 else "моно",
+                    "#" * n + "-" * (5 - n)))
             except Exception:
                 pass
         self.root.after(1500, self.tick)
 
     def quit(self):
+        self.scan_stop()
         self.stop()
         self.root.destroy()
 

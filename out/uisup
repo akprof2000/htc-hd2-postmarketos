@@ -1,7 +1,15 @@
 #!/bin/sh
-# Супервизор домашнего экрана и кнопок (после ручных перезапусков X).
+# Супервизор UI: домашний экран, кнопки, статус-полоска, шторка.
 while :; do
-    pgrep -f 'python3 /usr/local/bin/home' >/dev/null ||         { rm -f /tmp/.home.lock; DISPLAY=:0 setsid /usr/local/bin/home >>/tmp/home.err 2>&1 & }
-    pgrep -f 'python3 /usr/local/bin/keysd' >/dev/null ||         setsid /usr/bin/python3 /usr/local/bin/keysd >>/tmp/keysd.err 2>&1 &
+    pgrep -f 'python3 /usr/local/bin/home' >/dev/null || \
+        { rm -f /tmp/.home.lock; DISPLAY=:0 setsid /usr/local/bin/home >>/tmp/home.err 2>&1 & }
+    pgrep -f 'python3 /usr/local/bin/keysd' >/dev/null || \
+        setsid /usr/bin/python3 /usr/local/bin/keysd >>/tmp/keysd.err 2>&1 &
+    pgrep -f 'python3 /usr/local/bin/statusbar' >/dev/null || \
+        { rm -f /tmp/.statusbar.lock; DISPLAY=:0 setsid /usr/bin/python3 /usr/local/bin/statusbar >>/tmp/sbar.err 2>&1 & }
+    # шторка: резидент с каналом /run/shade.fifo; без него тап по полоске
+    # ничего не открывает, а запись в канал без читателя намертво висит
+    pgrep -f 'shade --daemon' >/dev/null || \
+        { rm -f /tmp/.shaded.lock /run/shade.fifo; DISPLAY=:0 setsid /usr/local/bin/shade --daemon >>/tmp/shade.err 2>&1 & }
     sleep 5
 done
