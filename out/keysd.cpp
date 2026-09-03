@@ -141,6 +141,28 @@ static void vol_osd(int vol)
     close(fd);
 }
 
+// Разгон качельки: одно нажатие — шаг VOL_STEP, каждое следующее подряд
+// (или повтор при удержании) увеличивает шаг на VOL_ACCEL до VOL_MAX;
+// пауза дольше VOL_GAP сбрасывает разгон обратно.
+static const int VOL_STEP = 1, VOL_ACCEL = 2, VOL_MAX = 12;
+static const double VOL_GAP = 0.7;
+static double vol_last_time = 0;
+static int vol_cur_step = VOL_STEP;
+
+static int volume_next_step(void)
+{
+    double t = now_s();
+    if (t - vol_last_time > VOL_GAP)
+        vol_cur_step = VOL_STEP;
+    else
+        vol_cur_step = (vol_cur_step + VOL_ACCEL > VOL_MAX)
+                       ? VOL_MAX : vol_cur_step + VOL_ACCEL;
+    vol_last_time = t;
+    return vol_cur_step;
+}
+
+static int beep_allowed = 1;
+
 static void volume_step(int delta)
 {
     std::string cur = readf(VOLFILE);
@@ -161,9 +183,35 @@ static void volume_step(int delta)
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "@vol %d", v);
     at_cmd(cmd);
-    if (call_state() == "idle" && v > 0) {
+    // Звук подтверждения: строго ОДИН за раз. Если предыдущий ещё не
+    // доиграл — пропускаем. Иначе процессы копятся и намертво заклинивают
+    // звуковой драйвер (проверено дважды: 30 висящих процессов, телефон
+    // приходилось перезагружать).
+    static pid_t beep_pid = 0;
+    static double last_beep = 0;
+    double t = now_s();
+    static double beep_started = 0;
+    if (beep_pid > 0 && waitpid(beep_pid, NULL, WNOHANG) == 0) {
+        if (t - beep_started > 3.0) {  // завис в драйвере — убираем,
+            kill(beep_pid, SIGKILL);   // иначе он навсегда заблокирует звук
+            beep_pid = 0;
+        }
+        return;                        // предыдущий звук ещё играет
+    }
+    beep_pid = 0;
+    if (beep_allowed && call_state() == "idle" && v > 0 &&
+        t - last_beep > 0.5) {
+        last_beep = t;
         snprintf(cmd, sizeof(cmd), "/usr/local/bin/beep s %d", v);
-        sh(cmd);
+        beep_started = t;
+        beep_pid = fork();
+        if (beep_pid == 0) {
+            setsid();
+            int null = open("/dev/null", O_RDWR);
+            if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); }
+            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+            _exit(127);
+        }
     }
 }
 
@@ -183,7 +231,9 @@ int main(void)
     int lock = open("/tmp/.keysd.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;                      // два сторожа мигают клавиатурой
-    signal(SIGCHLD, SIG_IGN);
+    // SIG_IGN здесь НЕЛЬЗЯ: тогда waitpid не сможет узнать, доиграл ли
+    // звук, и защита от накопления процессов не сработает
+    signal(SIGCHLD, SIG_DFL);
 
     int kfd = open(KEYPAD, O_RDONLY);
     if (kfd < 0) {
@@ -197,7 +247,7 @@ int main(void)
     double btn_off_at = 0, press_at[512] = {0};
     double last_touch = now_s(), last_kbd_check = 0;
     int dark = 0, hung_up = 0, kbd_want_last = -1, touched = 0;
-    int screen_off_by_us = 0;
+    int screen_off_by_us = 0, woke_by_press = 0;
     double last_kbd_show = 0;
 
     for (;;) {
@@ -217,19 +267,22 @@ int main(void)
                 ev.type == EV_KEY) {
                 if (ev.value == 1) {           // нажатие
                     last_touch = now_s();      // кнопки — тоже активность
+                    woke_by_press = 0;
                     if (dark) {                // и будят экран
                         writef(BL, "180");
                         if (tfd >= 0)
                             ioctl(tfd, EVIOCGRAB, 0);
                         dark = 0;
+                        screen_off_by_us = 0;
+                        woke_by_press = 1;     // это нажатие уже разбудило
                     }
                     writef(BTN_BL, "255");
                     btn_off_at = now_s() + BTN_LIGHT;
                     press_at[ev.code & 511] = now_s();
                     std::string st = call_state();
                     switch (ev.code) {
-                    case K_VOLUP:   volume_step(+10); break;
-                    case K_VOLDOWN: volume_step(-10); break;
+                    case K_VOLUP:   volume_step(+volume_next_step()); break;
+                    case K_VOLDOWN: volume_step(-volume_next_step()); break;
                     case K_SEND:
                         if (st == "ringing")
                             at_cmd("ATA");
@@ -256,12 +309,21 @@ int main(void)
                            "wmctrl -c :ACTIVE:'");
                         break;
                     }
+                } else if (ev.value == 2) {    // удержание: сам повторяет
+                    beep_allowed = 0;          // без звука: он бы захлебнулся
+                    if (ev.code == K_VOLUP)
+                        volume_step(+volume_next_step());
+                    else if (ev.code == K_VOLDOWN)
+                        volume_step(-volume_next_step());
+                    beep_allowed = 1;
                 } else if (ev.value == 0) {    // отпускание
                     double d = now_s() - press_at[ev.code & 511];
                     press_at[ev.code & 511] = 0;
                     if (ev.code == K_END) {
                         if (hung_up)
                             hung_up = 0;       // этим нажатием сбросили вызов
+                        else if (woke_by_press)
+                            woke_by_press = 0; // этим нажатием включили экран
                         else if (d >= LONG_PRESS)
                             sh("DISPLAY=:0 /usr/local/bin/powermenu");
                         else {
