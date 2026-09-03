@@ -183,36 +183,36 @@ static void volume_step(int delta)
     char cmd[32];
     snprintf(cmd, sizeof(cmd), "@vol %d", v);
     at_cmd(cmd);
-    // Звук подтверждения: строго ОДИН за раз. Если предыдущий ещё не
-    // доиграл — пропускаем. Иначе процессы копятся и намертво заклинивают
-    // звуковой драйвер (проверено дважды: 30 висящих процессов, телефон
-    // приходилось перезагружать).
-    static pid_t beep_pid = 0;
+    // Звук подтверждения: строго ОДИН за раз, и только если звуковое
+    // устройство свободно. Признак занятости — блокировка /run/audio.lock:
+    // её берёт наш потомок и держит до самой смерти (после exec файловый
+    // дескриптор остаётся у него). Если предыдущий блик завис в драйвере
+    // намертво (состояние D, SIGKILL не берёт), блокировка не отпустится и
+    // новых мы уже не создадим — раньше их накапливалось по два десятка и
+    // звук заклинивало до перезагрузки.
     static double last_beep = 0;
     double t = now_s();
-    static double beep_started = 0;
-    if (beep_pid > 0 && waitpid(beep_pid, NULL, WNOHANG) == 0) {
-        if (t - beep_started > 3.0) {  // завис в драйвере — убираем,
-            kill(beep_pid, SIGKILL);   // иначе он навсегда заблокирует звук
-            beep_pid = 0;
-        }
-        return;                        // предыдущий звук ещё играет
+    if (!beep_allowed || call_state() != "idle" || v <= 0 ||
+        t - last_beep < 0.5)
+        return;
+    int alock = open("/run/audio.lock", O_CREAT | O_RDWR, 0644);
+    if (alock < 0)
+        return;
+    if (flock(alock, LOCK_EX | LOCK_NB) < 0) {
+        close(alock);                  // звук ещё занят — блик пропускаем
+        return;
     }
-    beep_pid = 0;
-    if (beep_allowed && call_state() == "idle" && v > 0 &&
-        t - last_beep > 0.5) {
-        last_beep = t;
-        snprintf(cmd, sizeof(cmd), "/usr/local/bin/beep s %d", v);
-        beep_started = t;
-        beep_pid = fork();
-        if (beep_pid == 0) {
-            setsid();
-            int null = open("/dev/null", O_RDWR);
-            if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); }
-            execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-            _exit(127);
-        }
+    last_beep = t;
+    snprintf(cmd, sizeof(cmd), "/usr/local/bin/beep s %d", v);
+    pid_t p = fork();
+    if (p == 0) {
+        setsid();
+        int null = open("/dev/null", O_RDWR);
+        if (null >= 0) { dup2(null, 0); dup2(null, 1); dup2(null, 2); }
+        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
+        _exit(127);
     }
+    close(alock);                      // блокировку дальше держит потомок
 }
 
 // ── экран ────────────────────────────────────────────────────────────
@@ -220,6 +220,18 @@ static void screen_toggle(void)
 {
     std::string cur = readf(BL);
     writef(BL, (!cur.empty() && atoi(cur.c_str()) > 0) ? "0" : "180");
+}
+
+// есть ли на экране окно, в которое печатают
+static int any_typing_window(void)
+{
+    std::string list = capture("DISPLAY=:0 wmctrl -lx 2>/dev/null");
+    for (char &c : list)
+        c = tolower((unsigned char)c);
+    for (int i = 0; TYPING[i]; i++)
+        if (list.find(TYPING[i]) != std::string::npos)
+            return 1;
+    return 0;
 }
 
 int main(void)
@@ -231,9 +243,9 @@ int main(void)
     int lock = open("/tmp/.keysd.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;                      // два сторожа мигают клавиатурой
-    // SIG_IGN здесь НЕЛЬЗЯ: тогда waitpid не сможет узнать, доиграл ли
-    // звук, и защита от накопления процессов не сработает
-    signal(SIGCHLD, SIG_DFL);
+    // Занятость звука сторожит блокировка, а не waitpid, поэтому потомков
+    // пусть подбирает ядро — иначе копятся зомби.
+    signal(SIGCHLD, SIG_IGN);
 
     int kfd = open(KEYPAD, O_RDONLY);
     if (kfd < 0) {
@@ -384,6 +396,13 @@ int main(void)
                                       "getwindowclassname 2>/dev/null");
             for (char &c : cls)
                 c = tolower((unsigned char)c);
+            // Клавиатура сама стала активным окном — значит поле ввода
+            // закрылось; убираем её, если окон с вводом больше нет.
+            if (cls.find("rukbd") != std::string::npos &&
+                !any_typing_window()) {
+                kbd_want_last = 0;
+                sh("pkill -f 'bin/ruk[b]d'");
+            }
             // служебные окна решения не меняют, иначе клавиатура мигает
             if (cls.find("rukbd") == std::string::npos &&
                 cls.find("statusbar") == std::string::npos &&
@@ -393,13 +412,15 @@ int main(void)
                 for (int i = 0; TYPING[i]; i++)
                     if (cls.find(TYPING[i]) != std::string::npos)
                         want = 1;
-                int on = system("pgrep -f 'bin/rukbd' >/dev/null 2>&1") == 0;
+                // system() здесь бесполезен: при SIGCHLD=SIG_IGN он не может
+                // получить код возврата и всегда отдаёт -1
+                int on = !capture("pgrep -f 'bin/ruk[b]d'").empty();
                 if (want != kbd_want_last) {
                     kbd_want_last = want;
                     if (want && !on)
                         sh("DISPLAY=:0 /usr/local/bin/kbd");
                     else if (!want && on)
-                        sh("pkill -f 'bin/rukbd'");
+                        sh("pkill -f 'bin/ruk[b]d'");
                 } else if (want && !on && touched && t - last_kbd_show > 2) {
                     // клавиатуру закрыли вручную, а человек снова тапнул
                     // по полю ввода — показываем её опять
