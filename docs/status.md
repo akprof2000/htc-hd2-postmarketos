@@ -924,3 +924,29 @@ rukbd.doNotFocus: 1 (плюс statusbar/volosd) и в самом rukbd — ра�
 ГРАБЛИ: pkill -f 'bin/ruk[b]d' убивает ssh-оболочку, если в ТОЙ ЖЕ
 команде есть литерал /usr/local/bin/rukbd (например, в mv). Тестовые
 сценарии слать через `ssh ... "sh -s"` со stdin — там cmdline чистая.
+
+## FM-радио: протокол найден, приложение готово, приём — нет (02.09.2026)
+
+Источник истины — открытый Spirit2 FM (mikereidis/spirit2_free,
+jni/tnr/tnr_bch.c, bch_hci.c). Протокол BCM4329 по HCI:
+  0xFC15 [reg, 0, data...]  — запись 1..4 байт (младший вперёд)
+  0xFC15 [reg, 1, size]     — чтение, данные в хвосте ответа
+Карта регистров = radio-bcm2048.c (0x00 sys, 0x01 ctrl, 0x05 aud ctl0
+2 байта, 0x07 srch ctl, 0x09 tune mode 1=preset/2=auto, 0x0a freq 2 байта
+=(кГц-64000)/10, 0x0e carrier, 0x0f rssi (-144), 0x12 flags 2 байта,
+0xf8 vol, 0xfb, 0xfc srch meth, 0xfd step). Всё это в out/fmctl.
+РАБОТАЕТ: регистры пишутся/читаются, частота ставится, mute приёмника
+глушит шипение в наушниках (пользователь подтвердил) — т.е. звук идёт
+именно с FM-приёмника через AUDIO_START_FM (q6fm_open + aux loopback).
+НЕ РАБОТАЕТ: RSSI всегда 0 (raw 0x90), flags 0x0007 (finished+fail+rssi
+low), автопоиск обрывается сразу на любой частоте — как без антенны.
+Проверено и НЕ помогло: Wi-Fi off; FM+RDS; hi/lo injection; ctrl 0x06;
+poke 0xf41c0/0xf41e4/0xf41e0 (Spirit «audio routing»); переключение
+htc_accessory/fm (в ядре Android это только флаг состояния, GPIO нет);
+переподключение наушников. Прошивка чипа побайтово = Nexus One/Desire
+(TheMuppets gingerbread), с которой Spirit работает; HD2 есть в списке
+поддерживаемых Spirit. Wi-Fi у нас bcmdhd, как в Android.
+ОТКРЫТО: проверить приём штатным FM в WinMo с теми же наушниками
+(антенна — кабель наушников). Если и там нет — железо/наушники.
+out/radio-app: частота, шкала, ±0.1, поиск, 6 пресетов (долгий тап),
+громкость, вкл/выкл; плитка «Радио» на домашнем экране.

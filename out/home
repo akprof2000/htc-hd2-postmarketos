@@ -30,6 +30,7 @@ TILES = [
     ("⛁", "2048",        "#6a2e8a", "/usr/local/bin/game2048"),
     ("№", "Календарь",   "#a4262c", "/usr/local/bin/calendar-app"),
     ("ᛒ", "Bluetooth",   "#2a4a8a", "/usr/local/bin/btapp"),
+    ("📻", "Радио",       "#8a4a2a", "/usr/local/bin/radio-app"),
     ("⚙", "Настройки",   "#4b5a6a", "/usr/local/bin/settings"),
     ("ℹ", "Система",     "#33415c", "/usr/local/bin/sysinfo"),
     (">_", "Терминал",   "#4a4a56",

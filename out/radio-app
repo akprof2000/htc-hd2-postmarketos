@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""FM-радио HTC HD2 (приёмник в BCM4329, звук — наушники как антенна).
+
+Управление приёмником — /usr/local/bin/fmctl (регистры по HCI), звук —
+ioctl AUDIO_START_FM(37)/STOP_FM(38) на /dev/msm_audio_ctl: аналоговая
+петля FM -> кодек -> наушники. Кнопки — Label (Button в этом Tk пустые).
+"""
+import fcntl
+import os
+import runpy
+import struct
+import subprocess
+import tkinter as tk
+
+BG, FG, DIM, KEY, ACC, RED = ("#101828", "#e8eef5", "#7c8794", "#1c2a40",
+                              "#1f7a33", "#a4262c")
+PRESETS_FILE = "/root/.fm-presets"
+DEV_HEADSET = 0x107ac8a
+BAND = (87500, 108000)
+
+
+def audio_ioctl(n, arg=0):
+    code = (1 << 30) | (4 << 16) | (ord("a") << 8) | n
+    fd = os.open("/dev/msm_audio_ctl", os.O_RDWR)
+    try:
+        fcntl.ioctl(fd, code, struct.pack("I", arg))
+    finally:
+        os.close(fd)
+
+
+def fm_flag(val):
+    """/sys/class/htc_accessory/fm/flag: ядро требует ровно len+1 байт."""
+    try:
+        fd = os.open("/sys/class/htc_accessory/fm/flag", os.O_WRONLY)
+        try:
+            os.write(fd, (val + chr(10)).encode())
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def headset_in():
+    try:
+        return int(open("/sys/class/switch/h2w/state").read().strip()) & 3
+    except (OSError, ValueError):
+        return 0
+
+
+class Radio:
+    def __init__(self, root):
+        self.root = root
+        root.title("Радио")
+        root.configure(bg=BG)
+        root.geometry("480x776+0+24")
+        self.fm = runpy.run_path("/usr/local/bin/fmctl")
+        self.s = None
+        self.on = False
+        self.khz = 96800
+        self.presets = self.load_presets()
+
+        self.freq_lbl = tk.Label(root, text="—", font=("DejaVu Sans", 56, "bold"),
+                                 bg=BG, fg=FG)
+        self.freq_lbl.pack(pady=(28, 0))
+        self.info = tk.Label(root, text="наушники — это антенна",
+                             font=("DejaVu Sans", 12), bg=BG, fg=DIM)
+        self.info.pack()
+        self.sig = tk.Canvas(root, width=440, height=14, bg=BG,
+                             highlightthickness=0)
+        self.sig.pack(pady=(6, 10))
+
+        # шкала: тап — настройка на частоту
+        self.scale = tk.Canvas(root, width=460, height=54, bg=KEY,
+                               highlightthickness=0)
+        self.scale.pack(pady=(0, 10))
+        self.scale.bind("<Button-1>", self.tap_scale)
+        self.scale.bind("<B1-Motion>", self.tap_scale)
+
+        row = tk.Frame(root, bg=BG)
+        row.pack(fill="x", padx=10)
+        for txt, cb in (("◀◀", lambda: self.seek(False)),
+                        ("−0.1", lambda: self.tune(self.khz - 100)),
+                        ("+0.1", lambda: self.tune(self.khz + 100)),
+                        ("▶▶", lambda: self.seek(True))):
+            self.key(row, txt, cb)
+
+        tk.Label(root, text="Пресеты — долгий тап сохраняет",
+                 font=("DejaVu Sans", 11), bg=BG, fg=DIM).pack(pady=(14, 2))
+        grid = tk.Frame(root, bg=BG)
+        grid.pack(fill="x", padx=10)
+        self.pbtn = []
+        for i in range(6):
+            b = tk.Label(grid, text="", font=("DejaVu Sans", 14, "bold"),
+                         bg=KEY, fg=FG, pady=12)
+            b.grid(row=i // 3, column=i % 3, padx=3, pady=3, sticky="nsew")
+            b.bind("<ButtonPress-1>", lambda e, i=i: self.press(i))
+            b.bind("<ButtonRelease-1>", lambda e, i=i: self.release(i))
+            self.pbtn.append(b)
+        for c in range(3):
+            grid.columnconfigure(c, weight=1)
+
+        vol = tk.Frame(root, bg=BG)
+        vol.pack(fill="x", padx=10, pady=(14, 0))
+        self.key(vol, "тише", lambda: self.volume(-15))
+        self.key(vol, "громче", lambda: self.volume(+15))
+        self.vol = 70
+
+        self.power = tk.Label(root, text="", font=("DejaVu Sans", 17, "bold"),
+                              bg=ACC, fg="white", pady=16)
+        self.power.pack(fill="x", padx=10, pady=(14, 0), side="bottom")
+        self.power.bind("<Button-1>", lambda e: self.toggle())
+        self.status = tk.Label(root, text="", font=("DejaVu Sans", 11),
+                               bg=BG, fg=DIM)
+        self.status.pack(side="bottom", pady=4)
+
+        self.paint()
+        root.protocol("WM_DELETE_WINDOW", self.quit)
+        root.after(300, lambda: root.geometry("480x776+0+24"))
+        root.after(500, self.start)
+        root.after(1500, self.tick)
+
+    # ── приёмник ──────────────────────────────────────────────────────
+    def key(self, parent, txt, cb):
+        b = tk.Label(parent, text=txt, font=("DejaVu Sans", 15, "bold"),
+                     bg=KEY, fg=FG, pady=12)
+        b.pack(side="left", expand=True, fill="both", padx=3)
+        b.bind("<Button-1>", lambda e: cb())
+        return b
+
+    def start(self):
+        if not headset_in():
+            self.status.config(text="вставьте наушники: без них нет антенны")
+            self.root.after(2000, self.start)
+            return
+        try:
+            self.s = self.fm["open_hci"]()
+            self.fm["fm_on"](self.s)
+            # аналоговая петля FM -> наушники; ядро помнит незакрытый сеанс
+            # (EBUSY), поэтому сначала гасим возможный старый
+            audio_ioctl(32, DEV_HEADSET)
+            try:
+                audio_ioctl(38)
+            except OSError:
+                pass
+            audio_ioctl(37)
+            audio_ioctl(10, self.vol)
+            fm_flag("fm_headset")
+            self.on = True
+            self.tune(self.khz)
+            self.status.config(text="радио включено")
+        except Exception as e:
+            self.status.config(text="нет Bluetooth-стека: %s" % str(e)[:40])
+            self.on = False
+        self.paint()
+
+    def stop(self):
+        if self.on:
+            try:
+                audio_ioctl(38)
+                self.fm["fm_off"](self.s)
+                fm_flag("disable")
+            except Exception:
+                pass
+        self.on = False
+        self.paint()
+
+    def toggle(self):
+        if self.on:
+            self.stop()
+            self.status.config(text="выключено")
+        else:
+            self.start()
+
+    def tune(self, khz):
+        khz = max(BAND[0], min(BAND[1], (khz // 100) * 100))
+        self.khz = khz
+        if self.on:
+            try:
+                self.fm["tune"](self.s, khz)
+            except Exception as e:
+                self.status.config(text="ошибка: %s" % str(e)[:40])
+        self.paint()
+
+    def seek(self, up):
+        if not self.on:
+            return
+        self.status.config(text="поиск…")
+        self.root.update_idletasks()
+        try:
+            subprocess.run(["/usr/local/bin/fmctl", "seek", "up" if up else "down"],
+                           capture_output=True, timeout=15)
+            self.khz = self.fm["freq"](self.s)
+        except Exception as e:
+            self.status.config(text="поиск: %s" % str(e)[:40])
+        self.paint()
+
+    def volume(self, d):
+        self.vol = max(0, min(100, self.vol + d))
+        try:
+            audio_ioctl(10, self.vol)
+        except OSError:
+            pass
+        self.status.config(text="громкость %d%%" % self.vol)
+
+    # ── пресеты ───────────────────────────────────────────────────────
+    def load_presets(self):
+        p = [0] * 6
+        try:
+            for i, ln in enumerate(open(PRESETS_FILE).read().split()[:6]):
+                p[i] = int(ln)
+        except (OSError, ValueError):
+            pass
+        return p
+
+    def save_presets(self):
+        try:
+            open(PRESETS_FILE, "w").write(" ".join(map(str, self.presets)))
+        except OSError:
+            pass
+
+    def press(self, i):
+        self._hold = self.root.after(700, lambda: self.store(i))
+
+    def release(self, i):
+        if getattr(self, "_hold", None):
+            self.root.after_cancel(self._hold)
+            self._hold = None
+            if self.presets[i]:
+                self.tune(self.presets[i])
+
+    def store(self, i):
+        self._hold = None
+        self.presets[i] = self.khz
+        self.save_presets()
+        self.status.config(text="пресет %d = %.1f" % (i + 1, self.khz / 1000))
+        self.paint()
+
+    # ── отрисовка ─────────────────────────────────────────────────────
+    def tap_scale(self, e):
+        f = BAND[0] + (BAND[1] - BAND[0]) * max(0, min(460, e.x)) / 460
+        self.tune(int(f))
+
+    def paint(self):
+        self.freq_lbl.config(text="%.1f" % (self.khz / 1000),
+                             fg=FG if self.on else DIM)
+        c = self.scale
+        c.delete("all")
+        for m in range(88, 108):
+            x = (m * 1000 - BAND[0]) * 460 / (BAND[1] - BAND[0])
+            c.create_line(x, 34, x, 54 if m % 2 == 0 else 46, fill=DIM)
+            if m % 4 == 0:
+                c.create_text(x, 14, text=str(m), fill=DIM,
+                              font=("DejaVu Sans", 10))
+        x = (self.khz - BAND[0]) * 460 / (BAND[1] - BAND[0])
+        c.create_line(x, 0, x, 54, fill="#e0a030", width=3)
+        for i, b in enumerate(self.pbtn):
+            b.config(text="%.1f" % (self.presets[i] / 1000) if self.presets[i]
+                     else "·", bg=ACC if self.presets[i] == self.khz and
+                     self.presets[i] else KEY)
+        self.power.config(text="⏻  Выключить" if self.on else "⏻  Включить",
+                          bg=RED if self.on else ACC)
+
+    def tick(self):
+        if self.on:
+            try:
+                r = self.fm["rssi"](self.s)
+                st = self.fm["rd"](self.s, 0x12, 2)
+                stereo = "стерео" if st & 0x40 else "моно"
+                self.info.config(text="сигнал %d · %s" % (r, stereo))
+                self.sig.delete("all")
+                n = max(0, min(10, r // 6))
+                for i in range(10):
+                    self.sig.create_rectangle(i * 44, 0, i * 44 + 36, 14,
+                                              fill=ACC if i < n else KEY,
+                                              outline="")
+            except Exception:
+                pass
+        self.root.after(1000, self.tick)
+
+    def quit(self):
+        self.stop()
+        self.root.destroy()
+
+
+if __name__ == "__main__":
+    _l = open("/tmp/.radio.lock", "w")
+    try:
+        fcntl.flock(_l, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit(0)
+    root = tk.Tk(className="radio")
+    Radio(root)
+    root.mainloop()

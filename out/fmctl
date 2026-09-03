@@ -89,13 +89,17 @@ def rd(s, reg, size=1):
 
 
 def fm_on(s):
-    # последовательность включения — как в Spirit2 для Broadcom
+    # последовательность включения — как в Spirit2 (chip_imp_state_sg)
     wr(s, R_RDS_SYSTEM, 0x01)               # FM on (без RDS)
     time.sleep(0.05)
-    wr(s, R_FM_CTRL, CTRL_STEREO_AUTO)      # Европа, стерео-смешивание
-    wr(s, R_AUDIO_CTRL0, 0x005c, 2)         # 75 мкс, DAC, без mute
-    wr(s, 0x10, 0x0003, 2)                  # маски прерываний
-    wr(s, 0xf8, 0x00ff, 2)                  # громкость DAC максимум
+    wr(s, R_RDS_SYSTEM, 0x01)               # Spirit пишет дважды
+    wr(s, 0x10, 0x0000, 2)                  # прерывания — молчать, опрашиваем
+    wr(s, R_FM_CTRL, 0x06)                  # Европа, стерео + авто-смешивание
+    wr(s, 0x14, 0x40)                       # RDS FIFO water line
+    wr(s, 0xfb, 0, 4)                       # audio PCM (по Spirit)
+    wr(s, 0xfd, 100, 2)                     # шаг поиска 100 кГц
+    wr(s, 0xf8, 0xffff, 2)                  # громкость DAC максимум
+    wr(s, R_AUDIO_CTRL0, 0x005c, 2)         # 75 мкс, DAC L+R, без mute
     wr(s, R_AUDIO_PAUSE, 0)
 
 
@@ -114,8 +118,7 @@ def freq(s):
 
 
 def rssi(s):
-    v = rd(s, R_RSSI)
-    return v - 256 if v > 127 else v          # дБм, знаковый байт
+    return rd(s, R_RSSI) - 144                # шкала Spirit2: 0 = нет сигнала
 
 
 def save(khz):
@@ -165,16 +168,19 @@ def main():
                                           for r, k in best[:8]))
     elif a[0] == "seek":
         up = a[1] != "down" if len(a) > 1 else True
-        # SEARCH_CTRL0: бит7 направление вверх, младшие — порог RSSI
-        wr(s, R_SEARCH_CTRL0, (0x80 if up else 0x00) | 0x08)
-        wr(s, R_SEARCH_TUNE_MODE, TUNE_AUTO)
-        for _ in range(40):
+        # как в Spirit2: 0xfc — обычный поиск, 0x07 — порог RSSI (0x60) и
+        # бит 7 направление, 0x09 = 2 — авто-поиск; ждём флаг завершения
+        wr(s, 0xfc, 0x00)
+        wr(s, R_SEARCH_CTRL0, 0x60 | (0x80 if up else 0x00))
+        wr(s, R_SEARCH_TUNE_MODE, 0x02)
+        for _ in range(60):
             time.sleep(0.1)
-            if rd(s, R_SEARCH_TUNE_MODE) == 0:
+            if rd(s, R_FLAG0, 2) & 0x01:
                 break
         khz = freq(s)
         save(khz)
-        print("%.1f МГц, RSSI %d" % (khz / 1000, rssi(s)))
+        print("%.1f МГц, RSSI %d, флаги 0x%04x" % (khz / 1000, rssi(s),
+                                                    rd(s, R_FLAG0, 2)))
     return 0
 
 
