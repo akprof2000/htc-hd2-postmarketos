@@ -9,6 +9,7 @@ import fcntl
 import os
 import runpy
 import struct
+import subprocess
 import tkinter as tk
 
 BG, FG, DIM, KEY, ACC, RED = ("#101828", "#e8eef5", "#7c8794", "#1c2a40",
@@ -39,6 +40,16 @@ def fm_flag(val):
         pass
 
 
+def bt_up():
+    """Приёмник в том же чипе, что Bluetooth: без поднятого hci0 он молчит."""
+    try:
+        out = subprocess.run(["hciconfig", "hci0"], capture_output=True,
+                             text=True, timeout=5).stdout
+        return "UP RUNNING" in out
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def headset_in():
     try:
         return int(open("/sys/class/switch/h2w/state").read().strip()) & 3
@@ -55,7 +66,10 @@ class Radio:
         self.fm = runpy.run_path("/usr/local/bin/fmctl")
         self.s = None
         self.on = False
-        self.khz = 96800
+        try:
+            self.khz = int(open("/run/fm").read().strip()) or 96800
+        except (OSError, ValueError):
+            self.khz = 96800
         self.presets = self.load_presets()
 
         self.freq_lbl = tk.Label(root, text="—", font=("DejaVu Sans", 56, "bold"),
@@ -74,8 +88,8 @@ class Radio:
 
         row = tk.Frame(root, bg=BG)
         row.pack(fill="x", padx=10)
-        # аппаратный поиск бесполезен: приёмник не отдаёт уровень сигнала
-        # (регистр RSSI намертво нулевой), поэтому только ручная настройка
+        # аппаратный поиск не используется: уровень сигнала этот чип отдаёт
+        # слабо различимым (0x90 тишина … 0x93 станция) — настройка ручная
         for txt, d in (("◀◀", -1000), ("◀", -100), ("▶", +100), ("▶▶", +1000)):
             self.key(row, txt, lambda d=d: self.tune(self.khz + d))
 
@@ -128,6 +142,11 @@ class Radio:
             self.root.after(2000, self.start)
             return
         try:
+            if not bt_up():
+                self.status.config(text="поднимаю чип (20 с)…")
+                self.root.update_idletasks()
+                subprocess.run(["/usr/local/bin/btsetup"], capture_output=True,
+                               timeout=120)
             self.s = self.fm["open_hci"]()
             self.fm["fm_on"](self.s)
             # аналоговая петля FM -> наушники; ядро помнит незакрытый сеанс
@@ -174,6 +193,10 @@ class Radio:
                 self.fm["tune"](self.s, khz)
             except Exception as e:
                 self.status.config(text="ошибка: %s" % str(e)[:40])
+        try:
+            open("/run/fm", "w").write(str(khz))   # помним между запусками
+        except OSError:
+            pass
         self.paint()
 
     def volume(self, d):
@@ -247,8 +270,10 @@ class Radio:
         if self.on:
             try:
                 st = self.fm["rd"](self.s, 0x12, 2)
-                self.info.config(text="стерео" if st & 0x40 else
-                                 "моно · наушники работают антенной")
+                lvl = max(0, self.fm["rd"](self.s, 0x0f) - 0x90)
+                self.info.config(text="%s · сигнал %s" % (
+                    "стерео" if st & 0x40 else "моно",
+                    "▮" * min(5, lvl) + "▯" * (5 - min(5, lvl))))
             except Exception:
                 pass
         self.root.after(1500, self.tick)
