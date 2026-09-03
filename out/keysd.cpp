@@ -176,7 +176,11 @@ static void screen_toggle(void)
 
 int main(void)
 {
-    int lock = open("/tmp/.keysd.lock", O_CREAT | O_RDWR, 0644);
+    // O_CLOEXEC обязателен: без него запущенные нами программы
+    // наследуют эту блокировку и держат её после нашего выхода —
+    // тогда следующий экземпляр уже не стартует (так шторка
+    // держала блокировку статус-полоски)
+    int lock = open("/tmp/.keysd.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;                      // два сторожа мигают клавиатурой
     signal(SIGCHLD, SIG_IGN);

@@ -699,7 +699,11 @@ static void click(int x, int y, int press)
 
 int main(void)
 {
-    int lock = open("/tmp/.radio.lock", O_CREAT | O_RDWR, 0644);
+    // O_CLOEXEC обязателен: без него запущенные нами программы
+    // наследуют эту блокировку и держат её после нашего выхода —
+    // тогда следующий экземпляр уже не стартует (так шторка
+    // держала блокировку статус-полоски)
+    int lock = open("/tmp/.radio.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
     signal(SIGCHLD, SIG_IGN);
@@ -730,6 +734,9 @@ int main(void)
     XSetWMNormalHints(dpy, win, &sh_);
     XSelectInput(dpy, win, ExposureMask | ButtonPressMask |
                  ButtonReleaseMask);
+    // без этого «крестик» в полоске (WM_DELETE_WINDOW) окно не закрывает
+    Atom wm_del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(dpy, win, &wm_del, 1);
     XMapWindow(dpy, win);
 
     buf = XCreatePixmap(dpy, win, W, H, DefaultDepth(dpy, scr));
@@ -758,6 +765,11 @@ int main(void)
             } else if (e.type == ButtonPress) {
                 if (!keypad_mode)
                     click(e.xbutton.x, e.xbutton.y, 1);
+            } else if (e.type == ClientMessage) {
+                if ((Atom)e.xclient.data.l[0] == wm_del) {
+                    radio_stop();          // гасим приёмник и выходим
+                    return 0;
+                }
             } else if (e.type == ButtonRelease) {
                 if (keypad_mode)
                     keypad_click(e.xbutton.x, e.xbutton.y);

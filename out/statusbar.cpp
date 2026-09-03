@@ -243,7 +243,11 @@ static void draw(void)
 
 int main(void)
 {
-    int lock = open("/tmp/.statusbar.lock", O_CREAT | O_RDWR, 0644);
+    // O_CLOEXEC обязателен: без него запущенные нами программы
+    // наследуют эту блокировку и держат её после нашего выхода —
+    // тогда следующий экземпляр уже не стартует (так шторка
+    // держала блокировку статус-полоски)
+    int lock = open("/tmp/.statusbar.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
     signal(SIGCHLD, SIG_IGN);
@@ -299,8 +303,15 @@ int main(void)
             } else if (e.type == ButtonPress) {
                 if (have_close && e.xbutton.x >= close_x &&
                     e.xbutton.x < close_x + CLOSE_W) {
-                    if (active)        // закрыть окно вежливо, через WM
-                        sh("DISPLAY=:0 wmctrl -c :ACTIVE:");
+                    // именно по номеру окна: к моменту нажатия активной
+                    // становится сама полоска, и :ACTIVE: закрыл бы её
+                    if (active) {
+                        char cmd[96];
+                        snprintf(cmd, sizeof(cmd),
+                                 "DISPLAY=:0 wmctrl -i -c 0x%lx",
+                                 (unsigned long)active);
+                        sh(cmd);
+                    }
                 } else {
                     sh("DISPLAY=:0 /usr/local/bin/shade");
                 }
