@@ -197,6 +197,7 @@ int main(void)
     double btn_off_at = 0, press_at[512] = {0};
     double last_touch = now_s(), last_kbd_check = 0;
     int dark = 0, hung_up = 0, kbd_want_last = -1, touched = 0;
+    int screen_off_by_us = 0;
     double last_kbd_show = 0;
 
     for (;;) {
@@ -215,6 +216,13 @@ int main(void)
             if (read(kfd, &ev, sizeof(ev)) == (ssize_t)sizeof(ev) &&
                 ev.type == EV_KEY) {
                 if (ev.value == 1) {           // нажатие
+                    last_touch = now_s();      // кнопки — тоже активность
+                    if (dark) {                // и будят экран
+                        writef(BL, "180");
+                        if (tfd >= 0)
+                            ioctl(tfd, EVIOCGRAB, 0);
+                        dark = 0;
+                    }
                     writef(BTN_BL, "255");
                     btn_off_at = now_s() + BTN_LIGHT;
                     press_at[ev.code & 511] = now_s();
@@ -256,8 +264,14 @@ int main(void)
                             hung_up = 0;       // этим нажатием сбросили вызов
                         else if (d >= LONG_PRESS)
                             sh("DISPLAY=:0 /usr/local/bin/powermenu");
-                        else
+                        else {
                             screen_toggle();
+                            screen_off_by_us = (readf(BL) == "0");
+                            if (screen_off_by_us && tfd >= 0) {
+                                ioctl(tfd, EVIOCGRAB, 1);
+                                dark = 1;
+                            }
+                        }
                     }
                 }
             }
@@ -273,6 +287,7 @@ int main(void)
                 writef(BL, "180");
                 ioctl(tfd, EVIOCGRAB, 0);
                 dark = 0;
+                screen_off_by_us = 0;
             }
         }
 
@@ -289,8 +304,12 @@ int main(void)
                 writef(BL, "0");
                 ioctl(tfd, EVIOCGRAB, 1);      // тап-пробуждение не нажимает
                 dark = 1;                      // ничего в интерфейсе
+                screen_off_by_us = 1;
             }
-            if (!lit && !dark) {               // погасили красной кнопкой
+            // Сенсор перехватываем ТОЛЬКО когда гасим экран сами: иначе
+            // при любом чужом изменении яркости интерфейс переставал
+            // отзываться, хотя экран горел.
+            if (!lit && !dark && screen_off_by_us) {
                 ioctl(tfd, EVIOCGRAB, 1);
                 dark = 1;
             }

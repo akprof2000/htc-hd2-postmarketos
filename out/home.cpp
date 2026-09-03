@@ -53,7 +53,7 @@ static const Tile TILES[] = {
     {"☄", "Фонарик",     0x8a8a2e, "/usr/local/bin/torch"},
     {"▣", "2048",        0x6a2e8a, "/usr/local/bin/game2048"},
     {"№", "Календарь",   0xa4262c, "/usr/local/bin/calendar-app"},
-    {"ᛒ", "Bluetooth",   0x2a4a8a, "/usr/local/bin/btapp"},
+    {"BT", "Bluetooth",   0x2a4a8a, "/usr/local/bin/btapp"},
     {"≋", "Радио",       0x8a4a2a, "/usr/local/bin/radio-app"},
     {"⚙", "Настройки",   0x4b5a6a, "/usr/local/bin/settings"},
     {"ℹ", "Система",     0x33415c, "/usr/local/bin/sysinfo"},
