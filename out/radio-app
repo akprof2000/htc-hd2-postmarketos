@@ -527,7 +527,7 @@ class Radio:
         self.root.after(2000, self.tick)
 
     def quit(self):
-        self.scan_stop()
+        self.scanning = False        # поиск остановится сам на следующем шаге
         self.stop()
         self.root.destroy()
 
