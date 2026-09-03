@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Снимок камерой HTC HD2 — конвейер без интерфейса.
+
+Вызывается нативной камерой (camera.cpp):
+    camshot <режим> <вспышка> <фильтр>
+Режим: Авто | Ночь | HDR, вспышка: Авто | Вкл | Выкл,
+фильтр: «Без фильтра» | Ч/Б | Сепия | Яркий | Мягкий.
+Ход работы печатается построчно, последняя строка — «СОХРАНЕНО <файл>».
+
+Математика (дебайер, выравнивание, тональная кривая) взята из прежнего
+camera-app без изменений: она давалась тяжело и работает.
+"""
+import os
+import subprocess
+import sys
+import time
+
+import numpy as np
+from PIL import Image, ImageEnhance, ImageFilter
+
+OUT = "/root/Pictures"
+TORCH = "/sys/class/leds/flashlight/brightness"
+W, H = 1296, 972
+
+
+def log(txt):
+    print(txt, flush=True)
+
+
+# ── захват и проявка ─────────────────────────────────────────────────
+def torch(on):
+    try:
+        with open(TORCH, "w") as f:
+            f.write("255" if on else "0")
+    except OSError:
+        pass
+
+
+def capture(gain, line):
+    """Один RAW-кадр -> массив HxW (Bayer)."""
+    subprocess.run(["/usr/local/bin/camsnap", str(int(gain)),
+                    str(int(line))], capture_output=True, timeout=60)
+    d = np.fromfile("/tmp/raw1.bin", dtype=np.uint8)
+    return d[:W * H].reshape(H, W).astype(np.float32)
+
+
+def debayer(g):
+    """GRBG -> RGB с балансом белого «серый мир».
+
+    Сначала вычитаем уровень чёрного матрицы (пьедестал): без этого
+    тени остаются серыми и снимок выглядит затянутым дымкой.
+    """
+    black = float(np.percentile(g, 0.5))
+    g = np.maximum(g - black, 0)
+    G1 = g[0::2, 0::2]; R = g[0::2, 1::2]
+    B = g[1::2, 0::2]; G2 = g[1::2, 1::2]
+    G = (G1 + G2) / 2
+    m = (R.mean() + G.mean() + B.mean()) / 3
+    # баланс белого «серый мир», но БЕЗ растяжки яркости:
+    # растянуть один раз — задача проявки (иначе кадр выбеливает)
+    return np.dstack([R * (m / max(R.mean(), 1)), G,
+                      B * (m / max(B.mean(), 1))]) / 255.0
+
+
+def align(base, other):
+    """Сдвиг кадра по фазовой корреляции (антивибрация)."""
+    a = base[::4, ::4]; b = other[::4, ::4]
+    f = np.fft.rfft2(a) * np.conj(np.fft.rfft2(b))
+    c = np.fft.irfft2(f / (np.abs(f) + 1e-6))
+    dy, dx = np.unravel_index(np.argmax(c), c.shape)
+    if dy > a.shape[0] // 2:
+        dy -= a.shape[0]
+    if dx > a.shape[1] // 2:
+        dx -= a.shape[1]
+    return np.roll(other, (dy * 4, dx * 4), axis=(0, 1))
+
+
+def measure(gain, line):
+    g = capture(gain, line)
+    return g, float(g.mean())
+
+
+def shoot_auto(flash_mode, log):
+    """Автоэкспозиция: замер -> подстройка -> кадр; автовспышка."""
+    log("замер экспозиции…")
+    g, m = measure(60, 400)
+    target = 105.0
+    f = target / max(m, 2.0)
+    line = min(max(400 * f, 100), 2800)
+    gain = 60.0
+    if line >= 2800 and f > 7:            # темно даже на максимуме
+        gain = min(60 * f * 400 / 2800, 250)
+    # авто: вспышка, если замер тёмный ИЛИ выдержка упёрлась в потолок
+    dark = m < 35 or (line >= 2800 and f > 3)
+    use_flash = flash_mode == "Вкл" or (flash_mode == "Авто" and dark)
+    if use_flash:
+        log("темно (замер %d) — вспышка" % m)
+        torch(True)
+        time.sleep(0.4)          # диоду нужно разгореться до кадра
+    log("снимок (усиление %d, выдержка %d)…" % (gain, line))
+    try:
+        g = capture(gain, line)
+    finally:
+        torch(False)
+    return debayer(g)
+
+
+def shoot_night(log):
+    """3 кадра, выравнивание, среднее: меньше шума и смаза."""
+    frames = []
+    for i in range(3):
+        log("ночной режим: кадр %d/3…" % (i + 1))
+        frames.append(capture(180, 2800))
+    log("складываю кадры…")
+    base = frames[0]
+    acc = base.copy()
+    for fr in frames[1:]:
+        acc += align(base, fr)
+    return debayer(acc / 3)
+
+
+def shoot_hdr(log):
+    """Две экспозиции, слияние по яркости."""
+    log("HDR: тёмный кадр…")
+    lo = debayer(capture(60, 350))
+    log("HDR: светлый кадр…")
+    hi = debayer(capture(150, 2400))
+    lum = hi.mean(axis=2, keepdims=True)
+    w = np.clip((lum - 0.55) * 6, 0, 1)   # пересветы берём из тёмного
+    return hi * (1 - w) + lo * w
+
+
+def apply_filter(img, name):
+    if name == "Ч/Б":
+        return img.convert("L").convert("RGB")
+    if name == "Сепия":
+        g = np.asarray(img.convert("L"), dtype=np.float32)
+        return Image.fromarray(np.clip(np.dstack(
+            [g * 1.07, g * 0.74, g * 0.43]), 0, 255).astype("uint8"))
+    if name == "Яркий":
+        img = ImageEnhance.Color(img).enhance(1.5)
+        return ImageEnhance.Contrast(img).enhance(1.15)
+    if name == "Мягкий":
+        blur = img.filter(ImageFilter.GaussianBlur(3))
+        return Image.blend(img, blur, 0.45)
+    return img
+
+
+PW, PH = 324, 243                     # кадр превью от campreview
+PV_LEN = PW * PH * 3
+
+
+def finish(rgb, filt):
+    """Тональная кривая: света под потолок, середина к серой карте.
+
+    Раньше яркость растягивалась дважды (тут и в debayer) — снимки
+    выходили выбеленными.
+    """
+    hi = max(np.percentile(rgb, 99.5), 1e-4)
+    lin = np.clip(rgb / hi, 0, 1)
+    mean = max(float(lin.mean()), 1e-4)
+    k = min(max(0.20 / mean, 0.35), 3.0)      # средняя -> ~0.20
+    lin = np.clip(lin * k, 0, 1)
+    out = lin ** (1 / 2.2)
+    # мягкая S-кривая: тени глубже, света мягче — уходит «дымка»
+    out = np.clip((out - 0.5) * 1.25 + 0.5, 0, 1)
+    rgb = out * 255
+    img = Image.fromarray(rgb.astype("uint8"))
+    img = img.filter(ImageFilter.UnsharpMask(2, 60, 3))   # лёгкая резкость
+    return apply_filter(img, filt)
+
+
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "Авто"
+    flash = sys.argv[2] if len(sys.argv) > 2 else "Авто"
+    filt = sys.argv[3] if len(sys.argv) > 3 else "Без фильтра"
+    os.makedirs(OUT, exist_ok=True)
+    try:
+        if mode == "Ночь":
+            rgb = shoot_night(log)
+        elif mode == "HDR":
+            rgb = shoot_hdr(log)
+        else:
+            rgb = shoot_auto(flash, log)
+        log("проявка…")
+        img = finish(rgb, filt)
+        name = os.path.join(OUT, time.strftime("photo-%Y%m%d-%H%M%S.jpg"))
+        img.save(name, quality=92)
+        # уменьшенная копия — её показывает окно камеры сразу после снимка
+        small = img.copy()
+        small.thumbnail((464, 560))
+        small.convert("RGB").save("/tmp/camshot-preview.ppm")
+        log("СОХРАНЕНО " + name)
+    except Exception as e:                       # noqa: BLE001 — покажем в окне
+        torch(False)
+        log("ОШИБКА " + str(e)[:80])
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
