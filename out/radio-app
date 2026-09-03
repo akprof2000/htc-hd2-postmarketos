@@ -126,7 +126,7 @@ class Radio:
 
         row2 = tk.Frame(root, bg=BG)
         row2.pack(fill="x", padx=10, pady=(6, 0))
-        self.scan_btn = self.key(row2, "Обзор диапазона", self.scan_start)
+        self.scan_btn = self.key(row2, "Поиск станций", self.scan_start)
         self.key(row2, "Частота", self.keypad)
 
         row3 = tk.Frame(root, bg=BG)
@@ -231,30 +231,17 @@ class Radio:
         khz = max(BAND[0], min(BAND[1], int(round(khz / 100.0)) * 100))
         self.khz = khz
         if self.on:
-            # Перестройка в фоне и на СВЕЖЕМ соединении с приёмником:
-            # из давно открытого сокета регистры принимают частоту, а
-            # эфир не меняется (проверено на слух). В основном потоке
-            # этого делать нельзя — 0.6 с, окно бы подвисало.
-            threading.Thread(target=self.tune_hw, args=(khz,),
-                             daemon=True).start()
+            try:
+                with self.lock:
+                    self.fm["tune"](self.s, khz)
+            except Exception as e:
+                self.status.config(text="настройка: %s" % str(e)[:40])
         try:
             open("/run/fm", "w").write(str(khz))
         except OSError:
             pass
         if not quiet:
             self.paint()
-
-    def tune_hw(self, khz):
-        with self.lock:
-            try:
-                s2 = self.fm["open_hci"]()
-                try:
-                    self.fm["tune"](s2, khz)
-                finally:
-                    s2.close()
-            except Exception as e:
-                self.root.after(0, self.status.config,
-                                {"text": "настройка: %s" % str(e)[:40]})
 
     def hop(self, d):
         """По найденным станциям; пока их нет — шагом 1 МГц."""
@@ -277,43 +264,68 @@ class Radio:
             pass
         self.status.config(text="громкость %d%%" % self.vol)
 
-    # ── обзор диапазона на слух ────────────────────────────────────
-    # Автоматический поиск невозможен: этот чип не отдаёт ни уровня
-    # сигнала, ни пилота стерео, ни RDS, а его собственный поиск всегда
-    # рапортует «станции нет» (проверено). Поэтому — как SCAN в машине:
-    # приёмник сам идёт по диапазону, слушает человек.
-    DWELL = 2200                       # мс на частоту
+    # ── автопоиск станций ─────────────────────────────────────────
+    # Уровень сигнала различает станцию (0x95 и выше) и пустоту (0x90) —
+    # заработал, как только настройка стала верной (кГц, а не шаги по 10).
+    NOISE = 0x90
+    RISE = 3
 
     def scan_start(self):
         if not self.on:
             return
         if self.scanning:
-            self.scan_stop(save=True)
+            self.scanning = False
             return
         self.scanning = True
-        self.scan_btn.config(bg=RED, text="СТОП — это станция")
-        self.status.config(text="обзор: слушайте, нажмите СТОП на станции")
-        self.scan_step()
+        self.scan_btn.config(bg=RED, text="идёт поиск, стоп")
+        threading.Thread(target=self.scan_work, daemon=True).start()
 
-    def scan_step(self):
-        if not self.scanning:
-            return
-        nxt = self.khz + 100
-        if nxt > BAND[1]:
-            nxt = BAND[0]
-        self.tune(nxt)
-        self._scan_job = self.root.after(self.DWELL, self.scan_step)
-
-    def scan_stop(self, save=False):
+    def scan_work(self):
+        keep = self.khz
+        prof = []
+        try:
+            for khz in range(BAND[0], BAND[1] + 1, 100):
+                if not self.scanning:
+                    break
+                with self.lock:
+                    self.fm["tune"](self.s, khz)
+                self.root.after(0, self.scan_progress, khz)
+                threading.Event().wait(0.35)
+                with self.lock:
+                    lvl = max(self.fm["rd"](self.s, R_RSSI) for _ in range(3))
+                prof.append((khz, lvl))
+        except Exception as e:
+            self.root.after(0, self.status.config,
+                            {"text": "поиск: %s" % str(e)[:40]})
+        found = self.peaks(prof)
+        if found:
+            self.stations = sorted(set(self.stations) | set(found))
+            self.save_stations()
         self.scanning = False
-        if getattr(self, "_scan_job", None):
-            self.root.after_cancel(self._scan_job)
-            self._scan_job = None
-        self.scan_btn.config(bg=KEY, text="Обзор диапазона")
-        if save:
-            self.remember()
-        else:
-            self.paint()
+        self.root.after(0, self.scan_done, len(found), keep)
+
+    def peaks(self, prof):
+        """Вершины уровня: станция шире шага, поэтому сливаем близкие."""
+        if not prof:
+            return []
+        noise = min(v for _, v in prof)
+        cand = sorted(((v, k) for k, v in prof if v >= noise + self.RISE),
+                      reverse=True)
+        out = []
+        for v, k in cand:
+            if all(abs(k - k2) >= 300 for k2 in out):
+                out.append(k)
+        return out
+
+    def scan_progress(self, khz):
+        self.status.config(text="поиск: %.1f МГц" % (khz / 1000.0))
+        self.freq_lbl.config(text="%.1f" % (khz / 1000.0))
+
+    def scan_done(self, n, keep):
+        self.scan_btn.config(bg=KEY, text="Поиск станций")
+        self.status.config(text="найдено станций: %d" % n)
+        self.page = 0
+        self.tune(self.stations[0] if self.stations else keep)
 
     # ── ручной ввод частоты ───────────────────────────────────────────
     def keypad(self):
@@ -501,12 +513,18 @@ class Radio:
                           bg=RED if self.on else ACC)
 
     def tick(self):
-        # Регистры больше НЕ опрашиваем: уровень и стерео этот чип не
-        # отдаёт (всегда 0x90 / нет пилота), а лишние обращения к нему
-        # во время работы подозреваются в срыве перестройки.
-        self.info.config(text="наушники работают антенной"
-                              if self.on else "радио выключено")
-        self.root.after(3000, self.tick)
+        if self.on and not self.scanning:
+            try:
+                with self.lock:
+                    fl = self.fm["rd"](self.s, R_FLAG0)
+                    lvl = self.fm["rd"](self.s, R_RSSI)
+                n = min(5, max(0, lvl - 0x90))
+                self.info.config(text="%s   сигнал %s" % (
+                    "стерео" if fl & 0x40 else "моно",
+                    "#" * n + "-" * (5 - n)))
+            except Exception:
+                pass
+        self.root.after(2000, self.tick)
 
     def quit(self):
         self.scan_stop()
