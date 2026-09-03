@@ -9,7 +9,6 @@ import fcntl
 import os
 import runpy
 import struct
-import subprocess
 import tkinter as tk
 
 BG, FG, DIM, KEY, ACC, RED = ("#101828", "#e8eef5", "#7c8794", "#1c2a40",
@@ -65,9 +64,6 @@ class Radio:
         self.info = tk.Label(root, text="наушники — это антенна",
                              font=("DejaVu Sans", 12), bg=BG, fg=DIM)
         self.info.pack()
-        self.sig = tk.Canvas(root, width=440, height=14, bg=BG,
-                             highlightthickness=0)
-        self.sig.pack(pady=(6, 10))
 
         # шкала: тап — настройка на частоту
         self.scale = tk.Canvas(root, width=460, height=54, bg=KEY,
@@ -78,11 +74,10 @@ class Radio:
 
         row = tk.Frame(root, bg=BG)
         row.pack(fill="x", padx=10)
-        for txt, cb in (("◀◀", lambda: self.seek(False)),
-                        ("−0.1", lambda: self.tune(self.khz - 100)),
-                        ("+0.1", lambda: self.tune(self.khz + 100)),
-                        ("▶▶", lambda: self.seek(True))):
-            self.key(row, txt, cb)
+        # аппаратный поиск бесполезен: приёмник не отдаёт уровень сигнала
+        # (регистр RSSI намертво нулевой), поэтому только ручная настройка
+        for txt, d in (("◀◀", -1000), ("◀", -100), ("▶", +100), ("▶▶", +1000)):
+            self.key(row, txt, lambda d=d: self.tune(self.khz + d))
 
         tk.Label(root, text="Пресеты — долгий тап сохраняет",
                  font=("DejaVu Sans", 11), bg=BG, fg=DIM).pack(pady=(14, 2))
@@ -103,7 +98,7 @@ class Radio:
         vol.pack(fill="x", padx=10, pady=(14, 0))
         self.key(vol, "тише", lambda: self.volume(-15))
         self.key(vol, "громче", lambda: self.volume(+15))
-        self.vol = 70
+        self.vol = 100
 
         self.power = tk.Label(root, text="", font=("DejaVu Sans", 17, "bold"),
                               bg=ACC, fg="white", pady=16)
@@ -181,19 +176,6 @@ class Radio:
                 self.status.config(text="ошибка: %s" % str(e)[:40])
         self.paint()
 
-    def seek(self, up):
-        if not self.on:
-            return
-        self.status.config(text="поиск…")
-        self.root.update_idletasks()
-        try:
-            subprocess.run(["/usr/local/bin/fmctl", "seek", "up" if up else "down"],
-                           capture_output=True, timeout=15)
-            self.khz = self.fm["freq"](self.s)
-        except Exception as e:
-            self.status.config(text="поиск: %s" % str(e)[:40])
-        self.paint()
-
     def volume(self, d):
         self.vol = max(0, min(100, self.vol + d))
         try:
@@ -261,21 +243,15 @@ class Radio:
                           bg=RED if self.on else ACC)
 
     def tick(self):
+        # уровень сигнала не показываем: регистр RSSI этого чипа всегда 0
         if self.on:
             try:
-                r = self.fm["rssi"](self.s)
                 st = self.fm["rd"](self.s, 0x12, 2)
-                stereo = "стерео" if st & 0x40 else "моно"
-                self.info.config(text="сигнал %d · %s" % (r, stereo))
-                self.sig.delete("all")
-                n = max(0, min(10, r // 6))
-                for i in range(10):
-                    self.sig.create_rectangle(i * 44, 0, i * 44 + 36, 14,
-                                              fill=ACC if i < n else KEY,
-                                              outline="")
+                self.info.config(text="стерео" if st & 0x40 else
+                                 "моно · наушники работают антенной")
             except Exception:
                 pass
-        self.root.after(1000, self.tick)
+        self.root.after(1500, self.tick)
 
     def quit(self):
         self.stop()
