@@ -100,6 +100,7 @@ def fm_on(s):
     wr(s, 0xfd, 100, 2)                     # шаг поиска 100 кГц
     wr(s, 0xf8, 0xffff, 2)                  # громкость DAC максимум
     wr(s, R_AUDIO_CTRL0, 0x001c, 2)         # 50 мкс (Европа), DAC L+R
+    wr(s, 0x4d, 0x40)                       # выход приёмника — аналоговый
     wr(s, R_AUDIO_PAUSE, 0)
 
 
