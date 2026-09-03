@@ -241,6 +241,15 @@ static void draw(void)
     XFlush(dpy);
 }
 
+// Окно, чьё имя мы спрашиваем, может закрыться между запросами — Xlib
+// на это отвечает ошибкой и по умолчанию завершает программу. Полоска
+// от этого падала; ошибки просто игнорируем.
+static int x_error(Display *d, XErrorEvent *e)
+{
+    (void)d; (void)e;
+    return 0;
+}
+
 int main(void)
 {
     // O_CLOEXEC обязателен: без него запущенные нами программы
@@ -257,6 +266,7 @@ int main(void)
         fprintf(stderr, "нет доступа к X\n");
         return 1;
     }
+    XSetErrorHandler(x_error);
     scr = DefaultScreen(dpy);
     win = XCreateSimpleWindow(dpy, RootWindow(dpy, scr), 0, 0, W, H, 0,
                               BG, BG);
