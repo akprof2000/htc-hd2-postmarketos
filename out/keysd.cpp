@@ -396,6 +396,15 @@ int main(void)
         if (tfd >= 0) {
             std::string b = readf(BL);
             int lit = !b.empty() && atoi(b.c_str()) > 0;
+            // Входящий вызов будит экран: иначе звонок слышно, а
+            // ответить не по чему — сенсор перехвачен, экран погашен.
+            if (dark && call_state() != "idle") {
+                writef(BL, "180");
+                ioctl(tfd, EVIOCGRAB, 0);
+                dark = 0;
+                screen_off_by_us = 0;
+                last_touch = t;
+            }
             if (lit && !dark && t - last_touch > SLEEP_AFTER &&
                 call_state() == "idle") {
                 writef(BL, "0");

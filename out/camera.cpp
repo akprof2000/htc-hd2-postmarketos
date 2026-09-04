@@ -369,13 +369,18 @@ static void draw(void)
     snprintf(tb, sizeof(tb), "%d с", TIMERS[timer_i]);
     button2(14 + hw, R2_Y, hw, ROW_H, KEY, "Таймер:", tb);
 
+    int armed = (now_s() - arm_at < 15.0);      // ждём второе нажатие
     int shooting = (job && !job_video) || countdown > 0;
     int recording = (job && job_video);
     int sw = 300;
-    XSetForeground(dpy, gc, shooting ? WARN : ACC);
+    XSetForeground(dpy, gc, (shooting || armed) ? WARN : ACC);
     XFillRectangle(dpy, pixbuf, gc, 12, BAR_Y, sw, BAR_H);
-    const char *sl = countdown > 0 ? "таймер…" : (shooting ? "съёмка…"
-                                                           : "Снимок");
+    // пока ждём подтверждения, кнопка сама об этом говорит: раньше
+    // менялась только мелкая строка снизу, и нажатие выглядело как
+    // «ничего не произошло»
+    const char *sl = countdown > 0 ? "таймер…"
+                     : (shooting ? "съёмка…"
+                        : (armed ? "Ещё раз — снимок" : "Снимок"));
     text(f_shoot, &c_fg, 12 + (sw - tw(f_shoot, sl)) / 2, BAR_Y + BAR_H / 2 + 9,
          sl);
     int vx = 12 + sw + 8, vw = W - vx - 12;
@@ -413,10 +418,15 @@ static void start_job(const char *cmd, int video)
 static void shoot_now(void)
 {
     // камера строго однопользовательская: два стека разом роняют ядро
+    if (pv_on) {                              // покажем, чем заняты
+        status = "останавливаю превью…";
+        draw();
+    }
     if (!pv_stop()) {
         status = "превью не остановилось — снимок отменён";
         return;
     }
+    pv_on = 0;
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "/usr/local/bin/camshot '%s' '%s' '%s'",
              MODES[mode], FLASH[flash], FILTERS[filt]);
@@ -477,9 +487,9 @@ static void click(int x, int y)
         if (job || countdown > 0)
             return;
         if (x < 12 + 300) {
-            if (now_s() - arm_at > 6.0) {     // первое нажатие — только
-                arm_at = now_s();             // предупреждение
-                status = "нажмите ещё раз — снимок рискован";
+            if (now_s() - arm_at > 15.0) {    // первое нажатие — только
+                arm_at = now_s();             // предупреждение, 15 секунд
+                status = "снимок иногда вешает телефон";
                 return;
             }
             arm_at = 0;
@@ -596,6 +606,13 @@ int main(void)
             job = 0;
             job_video = 0;
             pv_on = 0;                        // второй запуск стека опасен
+            draw();
+        }
+        // кнопка должна сама вернуться в «Снимок», когда ожидание истекло
+        static int was_armed = 0;
+        int now_armed = (now_s() - arm_at < 15.0);
+        if (now_armed != was_armed) {
+            was_armed = now_armed;
             draw();
         }
         if (pv_on && !job && countdown == 0 && now_s() >= pv_hold) {

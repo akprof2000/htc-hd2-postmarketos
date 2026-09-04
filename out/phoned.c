@@ -305,6 +305,18 @@ static void set_state(const char *st)
 	if (!strcmp(st, "ringing") && !strcmp(old, "idle")) {
 		snprintf(call_dir, sizeof(call_dir), "in");
 		call_answered = 0;
+		/* показать экран вызова: сам он гасит подсветку обратно не
+		 * будет, а закроется, когда состояние станет idle */
+		pid_t p = fork();
+		if (p == 0) {
+			setsid();
+			int null = open("/dev/null", O_RDWR);
+			if (null >= 0) { dup2(null, 1); dup2(null, 2); }
+			putenv((char *)"DISPLAY=:0");
+			execl("/usr/local/bin/callscreen", "callscreen",
+			      (char *)NULL);
+			_exit(127);
+		}
 	}
 	if (!strcmp(st, "dialing") && !strcmp(old, "idle")) {
 		snprintf(call_dir, sizeof(call_dir), "out");
