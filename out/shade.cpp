@@ -166,6 +166,7 @@ static const int NTOG = sizeof(TOGGLES) / sizeof(TOGGLES[0]);
 struct Note {
     std::string text;
     std::string cmd;                   // что открыть по тапу
+    std::string clear;                 // какой счётчик при этом обнулить
 };
 static std::vector<Note> notes;
 
@@ -175,7 +176,8 @@ static void collect_notes(void)
     std::string missed = readf("/run/phone/missed");
     if (!missed.empty() && missed != "0")
         notes.push_back({"Пропущенные вызовы: " + missed,
-                         "DISPLAY=:0 /usr/local/bin/phone-gui"});
+                         "DISPLAY=:0 /usr/local/bin/phone-gui",
+                         "/run/phone/missed"});
     std::string sms = readf("/run/phone/sms_new");
     int cnt = 0;
     for (char ch : sms)
@@ -186,7 +188,8 @@ static void collect_notes(void)
     if (cnt) {
         char b[64];
         snprintf(b, sizeof(b), "Новых SMS: %d", cnt);
-        notes.push_back({b, "DISPLAY=:0 /usr/local/bin/phone-sms"});
+        notes.push_back({b, "DISPLAY=:0 /usr/local/bin/phone-sms",
+                         "/run/phone/sms_new"});
     }
     std::string cron = capture("crontab -l 2>/dev/null");
     size_t at = cron.find("icemobile-alarm");
@@ -197,12 +200,12 @@ static void collect_notes(void)
         if (sscanf(cron.c_str() + ls, "%d %d", &mi, &hh) == 2) {
             char b[64];
             snprintf(b, sizeof(b), "Будильник на %02d:%02d", hh, mi);
-            notes.push_back({b, "DISPLAY=:0 /usr/local/bin/clock"});
+            notes.push_back({b, "DISPLAY=:0 /usr/local/bin/clock", ""});
         }
     }
     std::string cap = readf("/sys/class/power_supply/battery/capacity");
     if (!cap.empty() && atoi(cap.c_str()) <= 20)
-        notes.push_back({"Заряд батареи низкий: " + cap + "%", ""});
+        notes.push_back({"Заряд батареи низкий: " + cap + "%", "", ""});
     if (notes.empty())
         notes.push_back({"Нет новых уведомлений", ""});
 }
@@ -265,6 +268,15 @@ static void draw(void)
 
     // уведомления
     text(xd, f_small, &c_dim, 14, NOTE_Y - 10, "Уведомления");
+    // «Очистить» — счётчики пропущенных и новых SMS обнуляются: раньше
+    // убрать их можно было только из «Настроек», и они висели неделями
+    if (!notes.empty()) {
+        const char *cl = "Очистить";
+        int cw = text_w(f_small, cl) + 24;
+        XSetForeground(dpy, gc, KEYC);
+        XFillRectangle(dpy, buf, gc, W - 10 - cw, NOTE_Y - 30, cw, 28);
+        text(xd, f_small, &c_fg, W - 10 - cw + 12, NOTE_Y - 10, cl);
+    }
     for (size_t i = 0; i < notes.size() && i < 6; i++) {
         int y = NOTE_Y + (int)i * (NOTE_H + 6);
         XSetForeground(dpy, gc, 0x182238);
@@ -342,10 +354,36 @@ static void click(int x, int y)
             return;
         }
     }
+    if (!notes.empty() && y >= NOTE_Y - 30 && y < NOTE_Y - 2 &&
+        x > W - 10 - (text_w(f_small, "Очистить") + 24)) {
+        int fd = open("/run/phone/sms_new", O_WRONLY | O_TRUNC | O_CREAT, 0644);
+        if (fd >= 0)
+            close(fd);
+        fd = open("/run/phone/missed", O_WRONLY | O_TRUNC | O_CREAT, 0644);
+        if (fd >= 0) {
+            if (write(fd, "0", 1) < 0) { }
+            close(fd);
+        }
+        collect_notes();
+        draw();
+        return;
+    }
     for (size_t i = 0; i < notes.size() && i < 6; i++) {
         int ny = NOTE_Y + (int)i * (NOTE_H + 6);
         if (y >= ny && y < ny + NOTE_H && !notes[i].cmd.empty()) {
             sh(notes[i].cmd.c_str());
+            // уведомление сделало своё дело — снимаем его счётчик,
+            // иначе оно висело бы и после того, как всё прочитано
+            if (!notes[i].clear.empty()) {
+                int fd = open(notes[i].clear.c_str(),
+                              O_WRONLY | O_TRUNC | O_CREAT, 0644);
+                if (fd >= 0) {
+                    if (notes[i].clear.find("missed") != std::string::npos)
+                        if (write(fd, "0", 1) < 0) { }
+                    close(fd);
+                }
+            }
+            collect_notes();
             hide();
             return;
         }

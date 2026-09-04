@@ -44,6 +44,11 @@ static XftColor c_fg, c_dim;
 
 static std::string state = "ringing", number, route, mute;
 static time_t active_since = 0;
+// Что делаем прямо сейчас: без этого окно на нажатие никак не отзывалось,
+// и человек жал «Отклонить» по шесть раз подряд (видно в журнале демона).
+static std::string busy_msg;
+static double busy_until = 0;
+static double reject_at = 0;            // когда отправили отбой
 
 static std::string readf(const char *p)
 {
@@ -121,6 +126,13 @@ static std::string pretty(const std::string &n)
            t.substr(6, 2) + "-" + t.substr(8, 2);
 }
 
+static double now_s(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
 static void text(XftFont *fn, XftColor *c, int x, int y, const char *s)
 {
     XftDrawStringUtf8(xd, c, fn, x, y, (const FcChar8 *)s, strlen(s));
@@ -179,6 +191,9 @@ static void draw(void)
             centered(f_small, &c_dim, SUB_Y, number);
     }
 
+    if (!busy_msg.empty())
+        centered(f_small, &c_dim, SUB_Y + 46, busy_msg);
+
     if (!ringing) {
         long sec = active_since ? (long)(time(NULL) - active_since) : 0;
         char t[32];
@@ -204,10 +219,24 @@ static void draw(void)
 
 static void click(int x, int y)
 {
+    if (now_s() < busy_until)          // команда уже ушла, не частим
+        return;
     int hw = (W - 30) / 2;
     if (state == "ringing") {
-        if (y >= BTN_Y && y < BTN_Y + BTN_H)
-            at_cmd(x < 10 + hw ? "ATA" : "ATH");
+        if (y >= BTN_Y && y < BTN_Y + BTN_H) {
+            if (x < 10 + hw) {
+                at_cmd("ATA");
+                busy_msg = "отвечаю…";
+            } else {
+                // Именно AT+CHUP: от голого ATH сеть объявляет звонящему
+                // «абонент недоступен» вместо «занято». ATH оставлен
+                // подстраховкой, если вызов не сбросился.
+                at_cmd("AT+CHUP");
+                busy_msg = "отклоняю…";
+                reject_at = now_s();
+            }
+            busy_until = now_s() + 3.0;
+        }
         return;
     }
     if (y >= TOOL_Y && y < TOOL_Y + TOOL_H) {
@@ -217,8 +246,11 @@ static void click(int x, int y)
             at_cmd(mute == "1" ? "@mute 0" : "@mute 1");
         return;
     }
-    if (y >= BTN_Y && y < BTN_Y + BTN_H)
-        at_cmd("ATH");
+    if (y >= BTN_Y && y < BTN_Y + BTN_H) {
+        at_cmd("AT+CHUP");
+        busy_msg = "завершаю…";
+        busy_until = now_s() + 3.0;
+    }
 }
 
 int main(void)
@@ -294,6 +326,15 @@ int main(void)
         FD_SET(xfd, &fds);
         struct timeval tv = {0, 300000};
         select(xfd + 1, &fds, NULL, NULL, &tv);
+
+        // отбой не подействовал — добиваем обычным ATH
+        if (reject_at > 0 && now_s() - reject_at > 2.5) {
+            reject_at = 0;
+            if (readf("/run/phone/state") == "ringing")
+                at_cmd("ATH");
+        }
+        if (now_s() > busy_until)
+            busy_msg.clear();
 
         std::string st = readf("/run/phone/state");
         if (st == "idle" || st.empty())
