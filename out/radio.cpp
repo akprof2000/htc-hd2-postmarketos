@@ -270,8 +270,12 @@ static XftFont *f_freq, *f_btn, *f_small;
 static XftColor c_fg, c_dim;
 
 static const int FREQ_Y = 96, INFO_Y = 128, SCALE_Y = 146, SCALE_H = 56;
-static const int ROW1_Y = 214, ROW2_Y = 278, HINT_Y = 336;
-static const int GRID_Y = 350, CELL_H = 62, VOL_Y = 490, POWER_Y = H - 78;
+// HINT_Y — это БАЗОВАЯ ЛИНИЯ подписи: буквы уходят вверх примерно на 12
+// точек, поэтому она должна начинаться заметно ниже кнопок ряда 2,
+// иначе текст ложится прямо на них.
+static const int ROW1_Y = 214, ROW2_Y = 278, HINT_Y = 356;
+static const int GRID_Y = 368, CELL_H = 88, VOL_Y = 564, POWER_Y = 650;
+static const int POWER_H = 84;
 static const int BTN_H = 54;
 
 static void text(XftFont *fn, XftColor *c, int x, int y, const char *s)
@@ -390,7 +394,7 @@ static void draw(void)
     // громкость и питание
     button(10, VOL_Y, hw, BTN_H, KEYC, "тише", f_btn);
     button(10 + hw + 6, VOL_Y, hw, BTN_H, KEYC, "громче", f_btn);
-    button(10, POWER_Y, W - 20, 64, radio_on ? RED : ACC,
+    button(10, POWER_Y, W - 20, POWER_H, radio_on ? RED : ACC,
            radio_on ? "Выключить" : "Включить", f_btn);
 
     XCopyArea(dpy, buf, win, gc, 0, 0, W, H, 0, 0);

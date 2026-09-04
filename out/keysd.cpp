@@ -66,8 +66,10 @@ static std::string readf(const char *path)
 
 static void writef(const char *path, const char *val)
 {
-    // O_TRUNC обязателен: без него «90» поверх «100» даёт «900»
-    int fd = open(path, O_WRONLY | O_TRUNC);
+    // O_TRUNC обязателен: без него «90» поверх «100» даёт «900».
+    // O_CREAT тоже: после перезагрузки /run/phone/vol ещё нет, и без него
+    // громкость не сохранялась — каждое нажатие считалось от 70.
+    int fd = open(path, O_WRONLY | O_TRUNC | O_CREAT, 0644);
     if (fd < 0)
         return;
     if (write(fd, val, strlen(val)) < 0) { /* не критично */ }

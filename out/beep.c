@@ -73,13 +73,24 @@ int main(int argc, char **argv) {
 	if (ioctl(fd, AUDIO_SET_CONFIG, &c) < 0) perror("SET_CONFIG");
 	if (ioctl(fd, AUDIO_START, 0) < 0) { perror("START"); return 1; }
 
+	/* Короткий «блям», а не двухсекундный писк: тон с быстрым затуханием
+	 * и второй гармоникой звучит как щипок, а не как зуммер. Плавный
+	 * подъём за 4 мс убирает щелчок в начале. Длинный сигнал ещё и вреден:
+	 * пока он играет, звуковое устройство занято. */
 	int16_t *buf = malloc(c.buffer_size);
-	unsigned frames = c.buffer_size / 4, t = 0, total = 44100 * 2;
+	unsigned frames = c.buffer_size / 4, t = 0;
+	unsigned total = 44100 / 8;                     /* около 0,12 с */
+	const double f0 = 523.25;                       /* до второй октавы */
 	while (t < total) {
 		unsigned i;
 		for (i = 0; i < frames; i++, t++) {
-			int16_t s = (int16_t)(12000.0 *
-					sin(2 * 3.14159265 * 660.0 * t / 44100.0));
+			double x = (double)t / 44100.0;
+			double env = exp(-x / 0.040);           /* затухание */
+			if (x < 0.004)
+				env *= x / 0.004;               /* мягкая атака */
+			double w = sin(2 * 3.14159265 * f0 * x) +
+				   0.35 * sin(2 * 3.14159265 * 2 * f0 * x);
+			int16_t s = (int16_t)(9000.0 * env * w / 1.35);
 			buf[2 * i] = s;
 			buf[2 * i + 1] = s;
 		}
