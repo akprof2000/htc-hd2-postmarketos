@@ -35,6 +35,8 @@ static XftColor c_fg, c_dim;
 
 static int board[4][4];
 static long score;
+static int over = 0;                   // ходов больше нет
+static int won = 0;                    // 2048 собрана
 
 // цвет плитки по номиналу
 static unsigned long tile_color(int v)
@@ -68,10 +70,27 @@ static void spawn(void)
     board[free_r[i]][free_c[i]] = (rand() % 10 == 0) ? 4 : 2;
 }
 
+// ходов не осталось: поле забито и рядом нет одинаковых
+static int no_moves(void)
+{
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++) {
+            if (!board[r][c])
+                return 0;
+            if (c < 3 && board[r][c] == board[r][c + 1])
+                return 0;
+            if (r < 3 && board[r][c] == board[r + 1][c])
+                return 0;
+        }
+    return 1;
+}
+
 static void reset(void)
 {
     memset(board, 0, sizeof(board));
     score = 0;
+    over = 0;
+    won = 0;
     spawn();
     spawn();
 }
@@ -121,6 +140,11 @@ static void move(char d)
     }
     if (memcmp(old, board, sizeof(board)))
         spawn();
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 4; c++)
+            if (board[r][c] >= 2048)
+                won = 1;
+    over = no_moves();
 }
 
 static void text(XftFont *fn, XftColor *c, int x, int y, const char *s)
@@ -156,6 +180,19 @@ static void draw(void)
             XftFont *fn = board[r][c] < 1000 ? f_big : f_small;
             text(fn, &c_fg, x + (CELL - tw(fn, b)) / 2, y + CELL / 2 + 12, b);
         }
+
+    if (over || won) {
+        // табличка поверх поля: без неё было непонятно, что игра кончена
+        int mh = 132, my = GRID_Y + (4 * CELL + 3 * PAD - mh) / 2;
+        XSetForeground(dpy, gc, over ? 0xa4262c : 0x1f7a33);
+        XFillRectangle(dpy, buf, gc, 20, my, W - 40, mh);
+        const char *t1 = over ? "Игра окончена" : "Собрано 2048!";
+        text(f_head, &c_fg, (W - tw(f_head, t1)) / 2, my + 46, t1);
+        snprintf(b, sizeof(b), "Счёт: %ld", score);
+        text(f_hint, &c_fg, (W - tw(f_hint, b)) / 2, my + 76, b);
+        const char *t3 = over ? "нажмите «Заново»" : "можно играть дальше";
+        text(f_hint, &c_fg, (W - tw(f_hint, t3)) / 2, my + 104, t3);
+    }
 
     XSetForeground(dpy, gc, BTN);
     XFillRectangle(dpy, buf, gc, 60, NEW_Y, W - 120, NEW_H);
@@ -228,9 +265,9 @@ int main(void)
             if (adx < 30 && ady < 30) {         // это не свайп, а тап
                 if (e.xbutton.y >= NEW_Y && e.xbutton.y < NEW_Y + NEW_H)
                     reset();
-            } else if (adx > ady)
+            } else if (!over && adx > ady)
                 move(dx < 0 ? 'l' : 'r');
-            else
+            else if (!over)
                 move(dy < 0 ? 'u' : 'd');
             draw();
         }

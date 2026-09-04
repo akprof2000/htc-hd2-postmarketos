@@ -27,6 +27,21 @@ def log(txt):
     print(txt, flush=True)
 
 
+def rotation():
+    """Угол поворота матрицы относительно портретного экрана.
+
+    Тот же файл читает нативная камера, поэтому снимок и превью всегда
+    повёрнуты одинаково; менять направление можно одной цифрой на
+    телефоне, без пересборки.
+    """
+    try:
+        with open("/root/.camrot") as f:
+            v = int(f.read().strip())
+        return v if v in (0, 90, 180, 270) else 90
+    except (OSError, ValueError):
+        return 90
+
+
 # ── захват и проявка ─────────────────────────────────────────────────
 def torch(on):
     try:
@@ -186,6 +201,9 @@ def main():
             rgb = shoot_auto(flash, log)
         log("проявка…")
         img = finish(rgb, filt)
+        rot = rotation()
+        if rot:                                  # PIL крутит против часовой
+            img = img.rotate(-rot, expand=True)
         name = os.path.join(OUT, time.strftime("photo-%Y%m%d-%H%M%S.jpg"))
         img.save(name, quality=92)
         # уменьшенная копия — её показывает окно камеры сразу после снимка

@@ -64,6 +64,27 @@ static XImage *img;
 static int have_frame = 0;
 static time_t pv_mtime = 0;
 
+// Матрица повёрнута относительно портретного экрана. Угол берём из
+// /root/.camrot (0/90/180/270), чтобы направление можно было поменять
+// одной цифрой на телефоне, а не пересборкой. Тот же файл читает camshot,
+// поэтому снимок и превью всегда повёрнуты одинаково.
+static int cam_rot = 90;
+
+static void load_rot(void)
+{
+    int fd = open("/root/.camrot", O_RDONLY);
+    if (fd < 0)
+        return;
+    char b[16] = {0};
+    ssize_t n = read(fd, b, sizeof(b) - 1);
+    close(fd);
+    if (n <= 0)
+        return;
+    int v = atoi(b);
+    if (v == 0 || v == 90 || v == 180 || v == 270)
+        cam_rot = v;
+}
+
 static pid_t pv_pid = 0, job = 0;
 static int job_video = 0;
 static int countdown = 0;                    // секунды таймера до снимка
@@ -103,20 +124,25 @@ static void pv_start(void)
     pv_pid = p;
 }
 
-static void pv_stop(void)
+// Возвращает 1, если поток превью остановлен ЧИСТО.
+//
+// SIGKILL здесь под запретом: убитый посреди ioctl драйвер камеры вешает
+// ядро намертво — так телефон уже дважды уходил в перезагрузку по
+// питанию. Лучше отказаться от снимка, чем свалить аппарат.
+static int pv_stop(void)
 {
     if (pv_pid <= 0)
-        return;
+        return 1;
     kill(pv_pid, SIGTERM);                   // штатная остановка потока VFE
-    for (int i = 0; i < 50; i++) {
-        if (waitpid(pv_pid, NULL, WNOHANG) == pv_pid)
-            break;
+    for (int i = 0; i < 150; i++) {          // ждём до 15 секунд
+        if (waitpid(pv_pid, NULL, WNOHANG) == pv_pid) {
+            pv_pid = 0;
+            usleep(1500000);                 // драйверу — отпустить устройство
+            return 1;
+        }
         usleep(100000);
     }
-    kill(pv_pid, SIGKILL);
-    waitpid(pv_pid, NULL, WNOHANG);
-    pv_pid = 0;
-    usleep(300000);                          // драйверу — отпустить устройство
+    return 0;                                // не остановился — не трогаем
 }
 
 // проявка превью: вычет чёрного, «серый мир», растяжка, гамма
@@ -161,13 +187,32 @@ static void tone_preview(const unsigned char *f)
             lut[v] = (unsigned char)(pow(x, 1.0 / 2.2) * 255);
         }
     }
-    // растягиваем 324×243 до 464×348 ближайшим соседом
-    for (int y = 0; y < PV_H; y++) {
-        int sy = y * PH / PV_H;
-        for (int x = 0; x < PV_W; x++) {
-            int sx = x * PW / PV_W;
+    // Кадр вписываем в окно с учётом поворота. При 90/270 картинка
+    // становится portrait и занимает середину окна — по краям чёрные
+    // поля, зато сцена не лежит на боку.
+    memset(rgba, 0, (size_t)PV_W * PV_H * 4);
+    int turned = (cam_rot == 90 || cam_rot == 270);
+    int iw = turned ? PH : PW, ih = turned ? PW : PH;
+    int dw = PV_W, dh = ih * PV_W / iw;
+    if (dh > PV_H) {
+        dh = PV_H;
+        dw = iw * PV_H / ih;
+    }
+    int ox = (PV_W - dw) / 2, oy = (PV_H - dh) / 2;
+    for (int y = 0; y < dh; y++)
+        for (int x = 0; x < dw; x++) {
+            int rx = x * iw / dw, ry = y * ih / dh;   // точка повёрнутого
+            int sx, sy;                               // точка исходного
+            switch (cam_rot) {
+            case 90:  sx = ry;              sy = PH - 1 - rx; break;
+            case 270: sx = PW - 1 - ry;     sy = rx;          break;
+            case 180: sx = PW - 1 - rx;     sy = PH - 1 - ry; break;
+            default:  sx = rx;              sy = ry;          break;
+            }
+            if (sx < 0 || sx >= PW || sy < 0 || sy >= PH)
+                continue;
             const unsigned char *p = f + (sy * PW + sx) * 3;
-            unsigned char *o = rgba + (y * PV_W + x) * 4;
+            unsigned char *o = rgba + ((oy + y) * PV_W + ox + x) * 4;
             for (int c = 0; c < 3; c++) {
                 double v = (p[c] - black) * k[c];
                 if (v < 0) v = 0;
@@ -176,7 +221,6 @@ static void tone_preview(const unsigned char *f)
             }
             o[3] = 0xff;
         }
-    }
     have_frame = 1;
 }
 
@@ -332,7 +376,11 @@ static void start_job(const char *cmd, int video)
 
 static void shoot_now(void)
 {
-    pv_stop();                                // камера однопользовательская
+    // камера строго однопользовательская: два стека разом роняют ядро
+    if (!pv_stop()) {
+        status = "превью не остановилось — снимок отменён";
+        return;
+    }
     char cmd[256];
     snprintf(cmd, sizeof(cmd), "/usr/local/bin/camshot '%s' '%s' '%s'",
              MODES[mode], FLASH[flash], FILTERS[filt]);
@@ -384,7 +432,10 @@ static void click(int x, int y)
             } else
                 shoot_now();
         } else {
-            pv_stop();
+            if (!pv_stop()) {
+                status = "превью не остановилось — запись отменена";
+                return;
+            }
             status = "видео: съёмка 10 с, потом сборка (~40 с)…";
             start_job("/usr/local/bin/campreview 11 120 900 10 0; "
                       "/usr/local/bin/camvid 10", 1);
@@ -437,6 +488,7 @@ int main(void)
         return 1;
     img = XCreateImage(dpy, vis, 24, ZPixmap, 0, (char *)rgba, PV_W, PV_H,
                        32, PV_W * 4);
+    load_rot();
     pv_start();
 
     int xfd = ConnectionNumber(dpy);
