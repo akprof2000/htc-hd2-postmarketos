@@ -126,7 +126,10 @@ int main(int argc, char **argv)
 
 	unsigned short handle = 0;
 	double t0 = now_s();
-	while (now_s() - t0 < 40) {
+	/* 90 секунд, а не 40: на этом чипе установка связи (paging) идёт
+	 * заметно дольше обычного — соединение появлялось уже после того,
+	 * как прежний срок истекал */
+	while (now_s() - t0 < 90) {
 		unsigned char d[300];
 		int r = read(hci, d, sizeof(d));
 		if (r < 3 || d[0] != 0x04)
