@@ -1,12 +1,16 @@
-// SMS для HTC HD2 — нативная замена phone-sms на Python/Tk.
+// Сообщения HTC HD2 — переписка, как на современном телефоне.
+//
+// Два экрана: список диалогов (собеседник, последняя реплика, время) и
+// сама переписка пузырями — входящие слева, отправленные справа. Внизу
+// переписки строка набора; клавиатура поднимается ТОЛЬКО когда в неё
+// ткнули, при чтении и прокрутке её нет.
 //
 // С модемом напрямую не разговаривает: команды уходят демону phoned в
 // /run/phone/cmd, ответы читаются из его журнала /run/phone/log.
 // Кириллица приходит шестнадцатеричным потоком UCS-2, номера — ASCII-hex,
 // длинные сообщения разбиты на части подряд — всё это разбирается тут.
-//
-// Ввод текста — экранной клавиатурой: своё поле ввода получает символы
-// через XTEST, как обычное окно.
+// Отправленное модем не хранит, поэтому свои реплики пишем сами в
+// /root/.sms-sent — без них переписки не получится.
 //
 // Сборка: g++ -O2 sms.cpp -I/usr/include/freetype2 -lX11 -lXft
 //         -lfontconfig -o phone-sms
@@ -30,7 +34,7 @@
 
 static const int W = 480, H = 776, WIN_Y = 24;
 static const unsigned long BG = 0x101418, KEYC = 0x1c2530, ACCENT = 0x2e7d32,
-                           FIELD = 0x1c2530;
+                           FIELD = 0x1c2530, OUTC = 0x2e5c34;
 static const char *RUN = "/run/phone";
 
 static Display *dpy;
@@ -42,11 +46,6 @@ static XftDraw *xd;
 static XftFont *f_big, *f_txt, *f_small;
 static XftColor c_fg, c_dim, c_warn, c_ok, c_err;
 
-static std::string to_num, body, status_msg = "готово";
-static int focus_body = 1;             // куда попадают набранные символы
-static std::vector<std::string> msgs;  // готовые строки для показа
-static int scroll = 0;
-static time_t send_at_time = 0, refresh_at_time = 0;
 
 // ── система ──────────────────────────────────────────────────────────
 static std::string readf(const std::string &p)
@@ -164,17 +163,145 @@ static std::string dehex(std::string s)
     return s;
 }
 
-// ── чтение списка сообщений ──────────────────────────────────────────
-struct Msg { std::string from, when, body; int idx; };
+// ── сообщения и переписки ────────────────────────────────────────────
+struct Msg {
+    std::string peer;                  // номер собеседника
+    std::string body;
+    std::string when;                  // «ЧЧ:ММ» для показа
+    long key;                          // для сортировки внутри переписки
+    int out;                           // 1 — наше, 0 — входящее
+};
+
+struct Thread {
+    std::string peer;
+    std::vector<int> ids;              // указатели в all
+};
+
+static std::vector<Msg> all;
+static std::vector<Thread> threads;
+
+static const char *SENT_FILE = "/root/.sms-sent";
+
+// «26/09/03,22:15:33+12» -> «22:15»
+static std::string short_time(const std::string &w)
+{
+    size_t c = w.find(',');
+    if (c == std::string::npos || c + 6 > w.size())
+        return w;
+    return w.substr(c + 1, 5);
+}
+
+// свои отправленные: «времяЧЧ:ММ<таб>номер<таб>текст», переводы строк \n
+static void load_sent(void)
+{
+    std::string s = readf(SENT_FILE);
+    size_t p = 0;
+    while (p < s.size()) {
+        size_t e = s.find('\n', p);
+        if (e == std::string::npos)
+            e = s.size();
+        std::string ln = s.substr(p, e - p);
+        p = e + 1;
+        size_t t1 = ln.find('\t');
+        if (t1 == std::string::npos)
+            continue;
+        size_t t2 = ln.find('\t', t1 + 1);
+        if (t2 == std::string::npos)
+            continue;
+        Msg m;
+        m.when = ln.substr(0, t1);
+        m.peer = ln.substr(t1 + 1, t2 - t1 - 1);
+        std::string b = ln.substr(t2 + 1);
+        std::string body;              // обратно разворачиваем переводы строк
+        for (size_t i = 0; i < b.size(); i++) {
+            if (b[i] == '\\' && i + 1 < b.size() && b[i + 1] == 'n') {
+                body += '\n';
+                i++;
+            } else
+                body += b[i];
+        }
+        m.body = body;
+        m.out = 1;
+        m.key = 1000000;               // свои — всегда после входящих
+        all.push_back(m);
+    }
+}
+
+static void save_sent(const std::string &peer, const std::string &body)
+{
+    int fd = open(SENT_FILE, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd < 0)
+        return;
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char hm[8];
+    strftime(hm, sizeof(hm), "%H:%M", &tm);
+    std::string esc;
+    for (size_t i = 0; i < body.size(); i++)
+        if (body[i] == '\n')
+            esc += "\\n";
+        else if (body[i] != '\t')
+            esc += body[i];
+    std::string ln = std::string(hm) + "\t" + peer + "\t" + esc + "\n";
+    if (write(fd, ln.c_str(), ln.size()) < 0) { }
+    close(fd);
+}
+
+// номер в «человеческом» виде: последние 10 цифр с разделителями
+static std::string pretty_num(const std::string &n)
+{
+    std::string d;
+    for (size_t i = 0; i < n.size(); i++)
+        if (isdigit((unsigned char)n[i]))
+            d += n[i];
+    if (d.size() < 10)
+        return n;
+    std::string t = d.substr(d.size() - 10);
+    return "+7 " + t.substr(0, 3) + " " + t.substr(3, 3) + "-" +
+           t.substr(6, 2) + "-" + t.substr(8, 2);
+}
+
+// одинаковый ли это собеседник (сравниваем по последним 10 цифрам)
+static std::string peer_key(const std::string &n)
+{
+    std::string d;
+    for (size_t i = 0; i < n.size(); i++)
+        if (isdigit((unsigned char)n[i]))
+            d += n[i];
+    if (d.size() > 10)
+        d = d.substr(d.size() - 10);
+    return d.empty() ? n : d;
+}
+
+static void build_threads(void)
+{
+    threads.clear();
+    for (size_t i = 0; i < all.size(); i++) {
+        std::string k = peer_key(all[i].peer);
+        size_t j = 0;
+        for (; j < threads.size(); j++)
+            if (peer_key(threads[j].peer) == k)
+                break;
+        if (j == threads.size()) {
+            Thread t;
+            t.peer = all[i].peer;
+            threads.push_back(t);
+        }
+        threads[j].ids.push_back((int)i);
+    }
+}
+
+static std::string status_msg = "готово";
 
 static void collect_messages(void)
 {
     std::vector<std::string> lines = log_tail(8);
     std::vector<Msg> got;
+    std::vector<int> idxs;
     for (size_t i = 0; i < lines.size(); i++) {
         const std::string &ln = lines[i];
         if (ln.compare(0, 6, "+CMGL:") == 0) {
-            // +CMGL: idx,"стат","номер",,"дата"
             std::vector<std::string> q;      // всё в кавычках
             size_t p = 0;
             while ((p = ln.find('"', p)) != std::string::npos) {
@@ -185,47 +312,31 @@ static void collect_messages(void)
                 p = e + 1;
             }
             Msg m;
-            m.idx = atoi(ln.c_str() + 6);
-            m.from = q.size() > 1 ? dehex(q[1]) : "?";
-            m.when = q.size() > 2 ? q[2] : "";
+            m.out = 0;
+            m.key = atoi(ln.c_str() + 6);
+            m.peer = q.size() > 1 ? dehex(q[1]) : "?";
+            m.when = q.size() > 2 ? short_time(q[2]) : "";
             got.push_back(m);
+            idxs.push_back((int)m.key);
         } else if (!got.empty() && ln != "OK" && !ln.empty()) {
             got.back().body += dehex(ln);
         }
     }
     // длинное сообщение приходит кусками подряд от одного номера
-    msgs.clear();
-    std::vector<Msg> merged;
+    all.clear();
     for (size_t i = 0; i < got.size(); i++) {
-        if (!merged.empty() && merged.back().from == got[i].from &&
-            got[i].idx == merged.back().idx + 1) {
-            merged.back().body += got[i].body;
-            merged.back().idx = got[i].idx;
+        if (!all.empty() && !all.back().out &&
+            peer_key(all.back().peer) == peer_key(got[i].peer) &&
+            idxs[i] == (int)all.back().key + 1) {
+            all.back().body += got[i].body;
+            all.back().key = idxs[i];
         } else
-            merged.push_back(got[i]);
+            all.push_back(got[i]);
     }
-    for (size_t i = 0; i < merged.size(); i++) {
-        msgs.push_back(merged[i].from + "  ·  " + merged[i].when);
-        // текст разбиваем на строки по ширине окна
-        std::string b = merged[i].body;
-        size_t p = 0;
-        while (p < b.size()) {
-            size_t n = 46;
-            if (p + n > b.size())
-                n = b.size() - p;
-            else {                      // не рвём UTF-8 посередине
-                while (n > 1 && ((unsigned char)b[p + n] & 0xc0) == 0x80)
-                    n--;
-            }
-            msgs.push_back("  " + b.substr(p, n));
-            p += n;
-        }
-        msgs.push_back("");
-    }
-    if (msgs.empty())
-        msgs.push_back("нет сообщений");
+    load_sent();
+    build_threads();
     char st[64];
-    snprintf(st, sizeof(st), "сообщений: %d", (int)merged.size());
+    snprintf(st, sizeof(st), "диалогов: %d", (int)threads.size());
     status_msg = st;
 }
 
@@ -248,108 +359,241 @@ static void fill(unsigned long col, int x, int y, int w, int h)
     XFillRectangle(dpy, buf, gc, x, y, w, h);
 }
 
-static const int TO_Y = 40, TO_H = 44;
-static const int BODY_Y = 112, BODY_H = 120;
-static const int BAR_Y = 248, BAR_H = 52;
-static const int ST_Y = 322;
-static const int LIST_Y = 340;
+// перенос по ширине с учётом UTF-8 и переводов строк
+static std::vector<std::string> wrap(XftFont *fn, const std::string &s,
+                                     int width)
+{
+    std::vector<std::string> out;
+    std::string cur;
+    for (size_t i = 0; i < s.size();) {
+        if (s[i] == '\n') {
+            out.push_back(cur);
+            cur.clear();
+            i++;
+            continue;
+        }
+        int n = 1;
+        unsigned char c = s[i];
+        if ((c & 0xe0) == 0xc0) n = 2;
+        else if ((c & 0xf0) == 0xe0) n = 3;
+        else if ((c & 0xf8) == 0xf0) n = 4;
+        std::string ch = s.substr(i, n);
+        i += n;
+        if (tw(fn, (cur + ch).c_str()) > width && !cur.empty()) {
+            // переносим по последнему пробелу, чтобы слова не рвались;
+            // если слово само шире строки — рвём его, деваться некуда
+            size_t sp = cur.rfind(' ');
+            if (sp != std::string::npos && sp > 0) {
+                std::string tail = cur.substr(sp + 1);
+                out.push_back(cur.substr(0, sp));
+                cur = tail + ch;
+            } else {
+                out.push_back(cur);
+                cur = ch;
+            }
+        } else
+            cur += ch;
+    }
+    out.push_back(cur);
+    return out;
+}
 
-static void draw(void)
+static std::string cut(XftFont *fn, std::string s, int width)
+{
+    if (tw(fn, s.c_str()) <= width)
+        return s;
+    while (!s.empty() && tw(fn, (s + "…").c_str()) > width) {
+        while (!s.empty() && ((unsigned char)s.back() & 0xc0) == 0x80)
+            s.erase(s.size() - 1);
+        if (!s.empty())
+            s.erase(s.size() - 1);
+    }
+    return s + "…";
+}
+
+// ── экраны ───────────────────────────────────────────────────────────
+enum { SCR_LIST, SCR_THREAD, SCR_NEW };
+static int screen = SCR_LIST;
+static int cur = -1;                   // открытая переписка
+static std::string compose, new_num;
+static int scroll = 0;                 // прокрутка списка/переписки
+static int kbd_up = 0;                 // поднята ли клавиатура
+static time_t send_at_time = 0, refresh_at_time = 0;
+
+static const int HEAD_H = 56;
+static const int ROW_H = 84;           // строка списка диалогов
+static const int SEND_W = 84, BAR_H = 62;
+// когда клавиатура поднята, она закрывает низ окна (экранно с 513),
+// поэтому строку набора поднимаем над ней
+static int bar_y(void) { return kbd_up ? 400 : H - BAR_H - 10; }
+
+// Клавиатура: keysd поднимает её по метке, а не по классу окна — иначе
+// она вылезала бы и при простом чтении переписки. В метке наш pid,
+// чтобы keysd убрал её, если мы вдруг закроемся.
+static void kbd_show(void)
+{
+    if (kbd_up)
+        return;
+    int fd = open("/run/kbd.want", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) {
+        char b[16];
+        int n = snprintf(b, sizeof(b), "%d\n", (int)getpid());
+        if (write(fd, b, n) < 0) { }
+        close(fd);
+    }
+    kbd_up = 1;
+}
+
+static void kbd_hide(void)
+{
+    unlink("/run/kbd.want");
+    kbd_up = 0;
+}
+
+static void draw_head(const char *title, int back)
+{
+    fill(KEYC, 0, 0, W, HEAD_H);
+    if (back) {
+        text(f_txt, &c_dim, 14, 36, "‹  Назад");
+        text(f_big, &c_fg, 140, 36, title);
+    } else
+        text(f_big, &c_fg, 14, 36, title);
+}
+
+static void draw_list(void)
 {
     fill(BG, 0, 0, W, H);
-    text(f_small, &c_dim, 12, 24, "Кому (номер)");
-    fill(FIELD, 10, TO_Y, W - 20, TO_H);
-    if (focus_body == 0)               // поле в фокусе — светлая рамка
-        XSetForeground(dpy, gc, 0x3a5578), XDrawRectangle(dpy, buf, gc, 10,
-                                                          TO_Y, W - 21,
-                                                          TO_H - 1);
-    text(f_txt, &c_fg, 20, TO_Y + 30, to_num.c_str());
+    draw_head("Сообщения", 0);
+    // «Обновить» — справа в шапке
+    const char *r = "⟳";
+    fill(0x27313d, W - 58, 8, 48, 40);
+    text(f_big, &c_fg, W - 58 + (48 - tw(f_big, r)) / 2, 36, r);
 
-    text(f_small, &c_dim, 12, BODY_Y - 14, "Текст");
-    fill(FIELD, 10, BODY_Y, W - 20, BODY_H);
-    if (focus_body)
-        XSetForeground(dpy, gc, 0x3a5578), XDrawRectangle(dpy, buf, gc, 10,
-                                                          BODY_Y, W - 21,
-                                                          BODY_H - 1);
-    // текст в поле — переносим по ширине
-    {
-        std::string b = body;
-        int y = BODY_Y + 26;
-        size_t p = 0;
-        while (p < b.size() && y < BODY_Y + BODY_H) {
-            size_t n = 34;
-            if (p + n > b.size())
-                n = b.size() - p;
-            else
-                while (n > 1 && ((unsigned char)b[p + n] & 0xc0) == 0x80)
-                    n--;
-            text(f_txt, &c_fg, 20, y, b.substr(p, n).c_str());
-            p += n;
-            y += 26;
-        }
+    int y0 = HEAD_H + 4, bottom = H - 74;
+    if (threads.empty())
+        text(f_txt, &c_dim, 20, y0 + 40, "переписок пока нет");
+    for (size_t i = (size_t)scroll; i < threads.size(); i++) {
+        int y = y0 + ((int)i - scroll) * ROW_H;
+        if (y + ROW_H > bottom)
+            break;
+        fill(KEYC, 10, y, W - 20, ROW_H - 6);
+        const Msg &last = all[threads[i].ids.back()];
+        std::string nm = pretty_num(threads[i].peer);
+        int time_w = tw(f_small, last.when.c_str());
+        text(f_big, &c_fg, 24, y + 32,
+             cut(f_big, nm, W - 60 - time_w).c_str());
+        text(f_small, &c_dim, W - 24 - time_w, y + 30, last.when.c_str());
+        std::string pv = (last.out ? "вы: " : "") + last.body;
+        for (size_t k = 0; k < pv.size(); k++)
+            if (pv[k] == '\n')
+                pv[k] = ' ';
+        text(f_txt, &c_dim, 24, y + 60, cut(f_txt, pv, W - 48).c_str());
     }
 
-    int bw = (W - 20 - 2 * 6) / 3;
-    fill(ACCENT, 10, BAR_Y, bw, BAR_H);
-    const char *s1 = "Отправить";
-    text(f_small, &c_fg, 10 + (bw - tw(f_small, s1)) / 2, BAR_Y + 32, s1);
-    fill(KEYC, 10 + bw + 6, BAR_Y, bw, BAR_H);
-    const char *s2 = "Обновить";
-    text(f_small, &c_fg, 10 + bw + 6 + (bw - tw(f_small, s2)) / 2,
-         BAR_Y + 32, s2);
-    fill(KEYC, 10 + 2 * (bw + 6), BAR_Y, bw, BAR_H);
-    const char *s3 = "Клавиатура";
-    text(f_small, &c_fg, 10 + 2 * (bw + 6) + (bw - tw(f_small, s3)) / 2,
-         BAR_Y + 32, s3);
-
-    text(f_small, &c_dim, 12, ST_Y, status_msg.c_str());
-
-    // список сообщений
-    fill(0x161d26, 10, LIST_Y, W - 20, H - LIST_Y - 10);
-    int y = LIST_Y + 22;
-    for (size_t i = (size_t)scroll; i < msgs.size() && y < H - 16; i++) {
-        int header = !msgs[i].empty() && msgs[i][0] != ' ';
-        text(f_small, header ? &c_ok : &c_fg, 18, y, msgs[i].c_str());
-        y += 20;
-    }
+    fill(ACCENT, 10, H - 68, W - 20, 58);
+    const char *n = "Написать";
+    text(f_big, &c_fg, (W - tw(f_big, n)) / 2, H - 30, n);
     XCopyArea(dpy, buf, win, gc, 0, 0, W, H, 0, 0);
     XFlush(dpy);
 }
 
+// высота пузыря в точках
+static int bubble_h(const std::vector<std::string> &lines)
+{
+    return 16 + (int)lines.size() * 24 + 18;
+}
+
+static void draw_thread(void)
+{
+    fill(BG, 0, 0, W, H);
+    const Thread &t = threads[cur];
+
+    int top = HEAD_H + 6, bot = bar_y() - 8;
+    int maxw = 320;
+    // раскладываем снизу вверх: свежие реплики всегда видны
+    int y = bot;
+    for (int i = (int)t.ids.size() - 1 - scroll; i >= 0; i--) {
+        if (i >= (int)t.ids.size())
+            continue;
+        const Msg &m = all[t.ids[i]];
+        std::vector<std::string> lines = wrap(f_txt, m.body, maxw - 28);
+        int bh = bubble_h(lines);
+        y -= bh + 8;
+        if (y + bh < top)
+            break;
+        int bw = 0;
+        for (size_t k = 0; k < lines.size(); k++) {
+            int lw = tw(f_txt, lines[k].c_str());
+            if (lw > bw)
+                bw = lw;
+        }
+        bw += 28;
+        if (bw < 120)
+            bw = 120;
+        int x = m.out ? W - 12 - bw : 12;
+        fill(m.out ? OUTC : KEYC, x, y, bw, bh);
+        for (size_t k = 0; k < lines.size(); k++)
+            text(f_txt, &c_fg, x + 14, y + 30 + (int)k * 24,
+                 lines[k].c_str());
+        text(f_small, &c_dim, x + bw - 14 - tw(f_small, m.when.c_str()),
+             y + bh - 6, m.when.c_str());
+    }
+
+    // шапка поверх пузырей: длинное сообщение иначе заезжает на неё
+    draw_head(cut(f_big, pretty_num(t.peer), W - 160).c_str(), 1);
+
+    // строка набора
+    int by = bar_y();
+    fill(FIELD, 10, by, W - 20 - SEND_W - 6, BAR_H);
+    if (kbd_up) {                      // рамка показывает, что ввод активен
+        XSetForeground(dpy, gc, 0x3a5578);
+        XDrawRectangle(dpy, buf, gc, 10, by, W - 21 - SEND_W - 6, BAR_H - 1);
+    }
+    std::string shown = compose.empty() ? "Сообщение…" : compose;
+    std::vector<std::string> cl = wrap(f_txt, shown, W - 60 - SEND_W);
+    // в строке видно две последние строки текста
+    size_t first = cl.size() > 2 ? cl.size() - 2 : 0;
+    for (size_t k = first; k < cl.size(); k++)
+        text(f_txt, compose.empty() ? &c_dim : &c_fg, 22,
+             by + 26 + (int)(k - first) * 24, cl[k].c_str());
+
+    fill(compose.empty() ? KEYC : ACCENT, W - 10 - SEND_W, by, SEND_W, BAR_H);
+    const char *s = "▶";
+    text(f_big, &c_fg, W - 10 - SEND_W + (SEND_W - tw(f_big, s)) / 2,
+         by + 40, s);
+    XCopyArea(dpy, buf, win, gc, 0, 0, W, H, 0, 0);
+    XFlush(dpy);
+}
+
+static void draw_new(void)
+{
+    fill(BG, 0, 0, W, H);
+    draw_head("Новое сообщение", 1);
+    text(f_small, &c_dim, 14, HEAD_H + 34, "Номер получателя");
+    fill(FIELD, 10, HEAD_H + 46, W - 20, 60);
+    XSetForeground(dpy, gc, 0x3a5578);
+    XDrawRectangle(dpy, buf, gc, 10, HEAD_H + 46, W - 21, 59);
+    text(f_big, &c_fg, 22, HEAD_H + 86, new_num.c_str());
+    fill(new_num.empty() ? KEYC : ACCENT, 10, HEAD_H + 126, W - 20, 60);
+    const char *n = "Дальше";
+    text(f_big, &c_fg, (W - tw(f_big, n)) / 2, HEAD_H + 166, n);
+    text(f_small, &c_dim, 14, HEAD_H + 216,
+         "номер вводится экранной клавиатурой, слой 123");
+    XCopyArea(dpy, buf, win, gc, 0, 0, W, H, 0, 0);
+    XFlush(dpy);
+}
+
+static void draw(void)
+{
+    if (screen == SCR_LIST)
+        draw_list();
+    else if (screen == SCR_THREAD)
+        draw_thread();
+    else
+        draw_new();
+}
+
 // ── действия ─────────────────────────────────────────────────────────
-static void do_send(void)
-{
-    if (to_num.empty() || body.empty()) {
-        status_msg = "нужен номер и текст";
-        draw();
-        return;
-    }
-    at_cmd("AT+CMGS=\"" + to_num + "\"");
-    usleep(1000000);
-    at_cmd(body + "\x1a");             // текст и Ctrl-Z
-    status_msg = "отправляется…";
-    send_at_time = time(NULL);
-    draw();
-}
-
-static void check_sent(void)
-{
-    std::vector<std::string> r = log_tail(10);
-    int ok = 0, err = 0;
-    for (size_t i = 0; i < r.size(); i++) {
-        if (r[i].compare(0, 6, "+CMGS:") == 0)
-            ok = 1;
-        if (r[i].find("ERROR") != std::string::npos)
-            err = 1;
-    }
-    if (ok) {
-        status_msg = "отправлено";
-        body.clear();
-    } else
-        status_msg = err ? "ошибка отправки" : "ответа нет";
-    draw();
-}
-
 static void do_refresh(void)
 {
     int fd = open((std::string(RUN) + "/sms_new").c_str(),
@@ -361,38 +605,110 @@ static void do_refresh(void)
     usleep(400000);
     at_cmd("AT+CMGL=\"ALL\"");
     refresh_at_time = time(NULL);
-    draw();
+}
+
+static void do_send(void)
+{
+    if (cur < 0 || compose.empty())
+        return;
+    std::string peer = threads[cur].peer;
+    at_cmd("AT+CMGS=\"" + peer + "\"");
+    usleep(1000000);
+    at_cmd(compose + "\x1a");          // текст и Ctrl-Z
+    save_sent(peer, compose);
+    // сразу показываем свою реплику, не дожидаясь модема
+    Msg m;
+    m.peer = peer;
+    m.body = compose;
+    m.out = 1;
+    m.key = 1000000;
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char hm[8];
+    strftime(hm, sizeof(hm), "%H:%M", &tm);
+    m.when = hm;
+    all.push_back(m);
+    threads[cur].ids.push_back((int)all.size() - 1);
+    compose.clear();
+    scroll = 0;
+    send_at_time = time(NULL);
+    status_msg = "отправляется…";
+}
+
+static void open_thread(const std::string &peer)
+{
+    std::string k = peer_key(peer);
+    for (size_t i = 0; i < threads.size(); i++)
+        if (peer_key(threads[i].peer) == k) {
+            cur = (int)i;
+            screen = SCR_THREAD;
+            scroll = 0;
+            return;
+        }
+    Thread t;                          // переписки ещё нет — заводим пустую
+    t.peer = peer;
+    threads.push_back(t);
+    cur = (int)threads.size() - 1;
+    screen = SCR_THREAD;
+    scroll = 0;
 }
 
 static void click(int x, int y)
 {
-    if (y >= TO_Y && y < TO_Y + TO_H) {
-        focus_body = 0;
-        draw();
-        return;
-    }
-    if (y >= BODY_Y && y < BODY_Y + BODY_H) {
-        focus_body = 1;
-        draw();
-        return;
-    }
-    int bw = (W - 20 - 2 * 6) / 3;
-    if (y >= BAR_Y && y < BAR_Y + BAR_H) {
-        if (x < 10 + bw)
-            do_send();
-        else if (x < 10 + 2 * bw + 6)
-            do_refresh();
-        else
-            system("DISPLAY=:0 /usr/local/bin/kbd >/dev/null 2>&1 &");
-        return;
-    }
-    if (y >= LIST_Y) {                 // тап по списку прокручивает
-        scroll += (y > (LIST_Y + H) / 2) ? 5 : -5;
-        if (scroll < 0)
+    if (screen == SCR_LIST) {
+        if (y < HEAD_H) {
+            if (x > W - 60)
+                do_refresh();
+            return;
+        }
+        if (y >= H - 68) {
+            screen = SCR_NEW;
+            new_num.clear();
+            kbd_show();
+            return;
+        }
+        int i = scroll + (y - HEAD_H - 4) / ROW_H;
+        if (i >= 0 && i < (int)threads.size()) {
+            cur = i;
+            screen = SCR_THREAD;
             scroll = 0;
-        if (scroll > (int)msgs.size() - 3)
-            scroll = (int)msgs.size() > 3 ? (int)msgs.size() - 3 : 0;
-        draw();
+        }
+        return;
+    }
+    if (screen == SCR_NEW) {
+        if (y < HEAD_H) {
+            screen = SCR_LIST;
+            kbd_hide();
+            return;
+        }
+        if (y >= HEAD_H + 46 && y < HEAD_H + 106) {
+            kbd_show();
+            return;
+        }
+        if (y >= HEAD_H + 126 && y < HEAD_H + 186 && !new_num.empty()) {
+            open_thread(new_num);
+            kbd_hide();
+        }
+        return;
+    }
+    // переписка
+    if (y < HEAD_H) {
+        if (x < 140) {
+            screen = SCR_LIST;
+            kbd_hide();
+            scroll = 0;
+        }
+        return;
+    }
+    int by = bar_y();
+    if (y >= by && y < by + BAR_H) {
+        if (x >= W - 10 - SEND_W) {
+            do_send();
+            kbd_hide();
+        } else
+            kbd_show();                // тап по строке — только тут клавиатура
+        return;
     }
 }
 
@@ -401,18 +717,22 @@ static void key_in(XKeyEvent *e)
     char b[16];
     KeySym ks;
     int n = XLookupString(e, b, sizeof(b) - 1, &ks, NULL);
-    std::string &dst = focus_body ? body : to_num;
+    if (screen == SCR_LIST)
+        return;
+    std::string &dst = (screen == SCR_NEW) ? new_num : compose;
     if (ks == XK_BackSpace) {
-        while (!dst.empty() &&
-               ((unsigned char)dst.back() & 0xc0) == 0x80)  // хвост UTF-8
+        while (!dst.empty() && ((unsigned char)dst.back() & 0xc0) == 0x80)
             dst.erase(dst.size() - 1);
         if (!dst.empty())
             dst.erase(dst.size() - 1);
     } else if (ks == XK_Return) {
-        if (focus_body)
+        if (screen == SCR_NEW) {
+            if (!new_num.empty()) {
+                open_thread(new_num);
+                kbd_hide();
+            }
+        } else
             dst += "\n";
-        else
-            focus_body = 1;
     } else if (n > 0) {
         b[n] = 0;
         dst += b;
@@ -439,8 +759,10 @@ int main(void)
                               BG, BG);
     XStoreName(dpy, win, "Сообщения");
     XClassHint ch;
-    ch.res_name = (char *)"sms";       // по этому классу keysd поднимает
-    ch.res_class = (char *)"Sms";      // экранную клавиатуру
+    // класса «sms» тут больше НЕТ: по нему keysd поднимал клавиатуру на
+    // любое окно сообщений, и она лезла даже при чтении переписки
+    ch.res_name = (char *)"smsapp";
+    ch.res_class = (char *)"Smsapp";
     XSetClassHint(dpy, win, &ch);
     XSizeHints sh;
     sh.flags = PPosition | PSize | PMinSize | PMaxSize;
@@ -450,7 +772,8 @@ int main(void)
     XSetWMNormalHints(dpy, win, &sh);
     Atom wm_del = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(dpy, win, &wm_del, 1);
-    XSelectInput(dpy, win, ExposureMask | ButtonPressMask | KeyPressMask);
+    XSelectInput(dpy, win, ExposureMask | ButtonPressMask |
+                 ButtonReleaseMask | Button1MotionMask | KeyPressMask);
     XMapWindow(dpy, win);
 
     buf = XCreatePixmap(dpy, win, W, H, DefaultDepth(dpy, scr));
@@ -473,21 +796,57 @@ int main(void)
     XftColorAllocValue(dpy, vis, cm, &gc2, &c_ok);
     XftColorAllocValue(dpy, vis, cm, &rc, &c_err);
 
+    load_sent();
+    build_threads();
     do_refresh();
+    draw();
+
     int xfd = ConnectionNumber(dpy);
+    int press_y = 0, moved = 0, scroll_at_press = 0;
     for (;;) {
         while (XPending(dpy)) {
             XEvent e;
             XNextEvent(dpy, &e);
             if (e.type == Expose)
                 draw();
-            else if (e.type == ButtonPress)
-                click(e.xbutton.x, e.xbutton.y);
-            else if (e.type == KeyPress)
+            else if (e.type == ButtonPress) {
+                press_y = e.xbutton.y;
+                moved = 0;
+                scroll_at_press = scroll;
+            } else if (e.type == MotionNotify) {
+                if (!(e.xmotion.state & Button1Mask))
+                    continue;
+                int dy = e.xmotion.y - press_y;
+                if (abs(dy) > 14)
+                    moved = 1;
+                int step = (screen == SCR_THREAD) ? 60 : ROW_H;
+                int ns = scroll_at_press + (screen == SCR_THREAD
+                                            ? dy / step : -dy / step);
+                int maxs = 0;
+                if (screen == SCR_LIST)
+                    maxs = (int)threads.size() - 6;
+                else if (screen == SCR_THREAD && cur >= 0)
+                    maxs = (int)threads[cur].ids.size() - 1;
+                if (maxs < 0)
+                    maxs = 0;
+                if (ns < 0) ns = 0;
+                if (ns > maxs) ns = maxs;
+                if (ns != scroll) {
+                    scroll = ns;
+                    draw();
+                }
+            } else if (e.type == ButtonRelease) {
+                if (!moved) {          // прокрутка не должна срабатывать как тап
+                    click(e.xbutton.x, e.xbutton.y);
+                    draw();
+                }
+            } else if (e.type == KeyPress)
                 key_in(&e.xkey);
             else if (e.type == ClientMessage &&
-                     (Atom)e.xclient.data.l[0] == wm_del)
+                     (Atom)e.xclient.data.l[0] == wm_del) {
+                kbd_hide();            // уходим — клавиатуру за собой убираем
                 return 0;
+            }
         }
         fd_set fds;
         FD_ZERO(&fds);
@@ -497,11 +856,34 @@ int main(void)
         time_t now = time(NULL);
         if (send_at_time && now - send_at_time >= 6) {
             send_at_time = 0;
-            check_sent();
+            std::vector<std::string> r = log_tail(10);
+            int ok = 0, err = 0;
+            for (size_t i = 0; i < r.size(); i++) {
+                if (r[i].compare(0, 6, "+CMGS:") == 0)
+                    ok = 1;
+                if (r[i].find("ERROR") != std::string::npos)
+                    err = 1;
+            }
+            status_msg = ok ? "отправлено"
+                            : (err ? "ошибка отправки" : "ответа нет");
+            draw();
         }
         if (refresh_at_time && now - refresh_at_time >= 4) {
             refresh_at_time = 0;
+            int keep = cur;
+            std::string peer = (cur >= 0 && cur < (int)threads.size())
+                               ? threads[cur].peer : "";
             collect_messages();
+            if (!peer.empty()) {       // после перечитывания остаёмся в том же
+                cur = -1;              // диалоге, а не вываливаемся в список
+                for (size_t i = 0; i < threads.size(); i++)
+                    if (peer_key(threads[i].peer) == peer_key(peer))
+                        cur = (int)i;
+                if (cur < 0) {
+                    screen = SCR_LIST;
+                    cur = keep;
+                }
+            }
             draw();
         }
     }

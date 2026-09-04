@@ -36,9 +36,31 @@ static const double LONG_PRESS = 2.5;      // красная: выключени
 static const double SLEEP_AFTER = 120.0;   // автосон
 static const double BTN_LIGHT = 3.0;
 
-// окна, где нужен ввод текста — там клавиатура показывается сама
-static const char *TYPING[] = {"xfce4-terminal", "phone-sms", "sms",
-                               "notes", "dillo", "mailapp", NULL};
+// Окна, где нужен ввод текста — там клавиатура показывается сама.
+// Сообщений в списке НЕТ: они просят клавиатуру сами (см. kbd_asked),
+// иначе она вылезала бы и при чтении переписки.
+static const char *TYPING[] = {"xfce4-terminal", "notes", "dillo",
+                               "mailapp", NULL};
+
+// Приложение может попросить клавиатуру меткой /run/kbd.want со своим
+// pid: так решает оно само, а не мы по классу окна. Если хозяин метки
+// умер, метку убираем.
+static const char *KBD_WANT = "/run/kbd.want";
+
+static int kbd_asked(void)
+{
+    int fd = open(KBD_WANT, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    char b[16] = {0};
+    ssize_t n = read(fd, b, sizeof(b) - 1);
+    close(fd);
+    int pid = n > 0 ? atoi(b) : 0;
+    if (pid > 1 && kill(pid, 0) == 0)
+        return 1;
+    unlink(KBD_WANT);
+    return 0;
+}
 
 static double now_s(void)
 {
@@ -401,7 +423,7 @@ int main(void)
             // Клавиатура сама стала активным окном — значит поле ввода
             // закрылось; убираем её, если окон с вводом больше нет.
             if (cls.find("rukbd") != std::string::npos &&
-                !any_typing_window()) {
+                !kbd_asked() && !any_typing_window()) {
                 kbd_want_last = 0;
                 sh("pkill -f 'bin/ruk[b]d'");
             }
@@ -410,8 +432,8 @@ int main(void)
                 cls.find("statusbar") == std::string::npos &&
                 cls.find("volosd") == std::string::npos &&
                 cls.find("shade") == std::string::npos) {
-                int want = 0;
-                for (int i = 0; TYPING[i]; i++)
+                int want = kbd_asked();
+                for (int i = 0; !want && TYPING[i]; i++)
                     if (cls.find(TYPING[i]) != std::string::npos)
                         want = 1;
                 // system() здесь бесполезен: при SIGCHLD=SIG_IGN он не может
