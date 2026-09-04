@@ -44,7 +44,7 @@ static const Tile TILES[] = {
     {"✉", "СМС",         0x0a6ebd, "/usr/local/bin/phone-sms"},
     {"◫", "Контакты",    0x2e6a5a, "/usr/local/bin/contacts"},
     {"◉", "Камера",      0x8a2b5a, "/usr/local/bin/camera"},
-    {"♫", "Медиа",       0x7a4b8a, "/usr/local/bin/media"},
+    {"♫", "Плеер",       0x7a4b8a, "/usr/local/bin/rockbox-app"},
     {"▦", "Приложения",  0x2e6a5a, "/usr/local/bin/taskmgr"},
     {"=",      "Калькулятор", 0x8a5a2e, "/usr/local/bin/calc"},
     {"✎", "Заметки",     0x4a6b2e, "/usr/local/bin/notes"},

@@ -1,0 +1,42 @@
+#!/bin/sh
+# Запуск Rockbox на HTC HD2.
+#
+# ДВЕ ТОНКОСТИ, без которых он не работает:
+#
+# 1. SDL_VIDEODRIVER=x11 обязателен. Без него SDL сначала пробует
+#    Wayland, тот просит memfd_create — системный вызов, которого в ядре
+#    3.0 нет (появился в 3.17), — и программа сразу умирает с «shared
+#    memfd open() failed». Запрещать разделяемую память X (NOMITSHM) при
+#    этом НЕ надо: с ней кадры идут через память, а без неё полтора
+#    мегабайта на кадр гонятся через сокет, и всё жутко тормозит.
+#
+# 2. Окну нужно отдать фокус. Rockbox берёт ввод только у окна в фокусе:
+#    без этого не отзываются ни касания, ни кнопки.
+
+export DISPLAY=:0
+export SDL_VIDEODRIVER=x11
+export HOME=/root
+
+# одна копия за раз
+if pgrep -x rockbox >/dev/null 2>&1; then
+    W=$(wmctrl -l 2>/dev/null | awk '/Rockbox/{print $1}' | tail -1)
+    [ -n "$W" ] && wmctrl -i -a "$W"
+    exit 0
+fi
+
+cd /root || exit 1
+setsid /usr/local/bin/rockbox >/tmp/rockbox.log 2>&1 &
+
+# дождаться окна и отдать ему фокус
+i=0
+while [ $i -lt 30 ]; do
+    W=$(wmctrl -l 2>/dev/null | awk '/Rockbox/{print $1}' | tail -1)
+    if [ -n "$W" ]; then
+        sleep 1
+        xdotool windowactivate --sync "$W" 2>/dev/null
+        exit 0
+    fi
+    i=$((i + 1))
+    sleep 0.5
+done
+exit 1
