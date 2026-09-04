@@ -310,6 +310,19 @@ static int tw(XftFont *fn, const char *s)
     return gi.xOff;
 }
 
+// подпись, обрезанная по ширине окна: длинная строка иначе уезжает за
+// оба края (центрируется от отрицательной координаты)
+static std::string fit(XftFont *fn, std::string t, int width)
+{
+    while (!t.empty() && tw(fn, t.c_str()) > width) {
+        while (!t.empty() && ((unsigned char)t.back() & 0xc0) == 0x80)
+            t.erase(t.size() - 1);
+        if (!t.empty())
+            t.erase(t.size() - 1);
+    }
+    return t;
+}
+
 // кнопка с подписью в две строки
 static void button2(int x, int y, int w, int h, unsigned long col,
                     const char *top, const char *bottom)
@@ -334,18 +347,19 @@ static void draw(void)
     else {
         const char *t1 = "HTC HD2 · 5 Мп";
         const char *t2 = pv_on ? "поток запускается…"
-                               : "нажмите здесь, чтобы навести";
+                               : "нажмите здесь для наводки";
         const char *t3 = pv_on ? "" : "снимок надёжнее без превью";
         text(f_btn, &c_dim, PV_X + (PV_W - tw(f_btn, t1)) / 2,
              PV_Y + PV_H / 2 - 30, t1);
-        text(f_btn, &c_dim, PV_X + (PV_W - tw(f_btn, t2)) / 2,
-             PV_Y + PV_H / 2 + 8, t2);
+        text(f_small, &c_dim, PV_X + (PV_W - tw(f_small, t2)) / 2,
+             PV_Y + PV_H / 2 + 6, t2);
         if (t3[0])
             text(f_small, &c_dim, PV_X + (PV_W - tw(f_small, t3)) / 2,
-                 PV_Y + PV_H / 2 + 38, t3);
+                 PV_Y + PV_H / 2 + 34, t3);
     }
-    text(f_small, &c_dim, (W - tw(f_small, status.c_str())) / 2, ST_Y,
-         status.c_str());
+    std::string st = fit(f_small, status, W - 16);
+    text(f_small, &c_dim, (W - tw(f_small, st.c_str())) / 2, ST_Y,
+         st.c_str());
 
     int hw = (W - 22) / 2;
     button2(8, R1_Y, hw, ROW_H, KEY, "Режим:", MODES[mode]);
@@ -465,7 +479,7 @@ static void click(int x, int y)
         if (x < 12 + 300) {
             if (now_s() - arm_at > 6.0) {     // первое нажатие — только
                 arm_at = now_s();             // предупреждение
-                status = "снимок вешает телефон — нажмите ещё раз";
+                status = "нажмите ещё раз — снимок рискован";
                 return;
             }
             arm_at = 0;
