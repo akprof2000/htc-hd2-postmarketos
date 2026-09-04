@@ -256,7 +256,7 @@ int main(void)
     // наследуют эту блокировку и держат её после нашего выхода —
     // тогда следующий экземпляр уже не стартует (так шторка
     // держала блокировку статус-полоски)
-    int lock = open("/tmp/.statusbar.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    int lock = open("/run/.statusbar.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
     signal(SIGCHLD, SIG_IGN);
@@ -351,6 +351,22 @@ int main(void)
         // активное окно и его имя — дёшево, прямо у X
         Window a = get_active();
         std::string t = win_name(a);
+        // Rockbox рисует ровно во весь экран, и его верхняя строка
+        // оказывалась под нами. Двигать его окно не дают ни оконный
+        // менеджер, ни SDL, поэтому уступаем место сами: пока плеер
+        // впереди, строку состояния прячем, свои часы и заряд он
+        // показывает сам.
+        {
+            static int hidden = 0;
+            int want_hide = (t == "Rockbox");
+            if (want_hide && !hidden) {
+                XUnmapWindow(dpy, win);
+                hidden = 1;
+            } else if (!want_hide && hidden) {
+                XMapRaised(dpy, win);
+                hidden = 0;
+            }
+        }
         if (t == "statusbar" || t == "Шторка" || t == "rukbd" ||
             t == "volosd")
             t = title;                 // служебные окна заголовок не меняют

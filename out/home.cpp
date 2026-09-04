@@ -220,7 +220,7 @@ int main(void)
     // наследуют эту блокировку и держат её после нашего выхода —
     // тогда следующий экземпляр уже не стартует (так шторка
     // держала блокировку статус-полоски)
-    int lock = open("/tmp/.home.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    int lock = open("/run/.home.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
 

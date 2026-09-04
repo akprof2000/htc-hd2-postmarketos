@@ -157,7 +157,7 @@ static void force_kill(int pid)
 
 int main(void)
 {
-    int lock = open("/tmp/.taskmgr.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    int lock = open("/run/.taskmgr.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
     signal(SIGCHLD, SIG_IGN);

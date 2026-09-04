@@ -55,7 +55,7 @@ int main(int argc, char **argv)
 
 	/* камера строго однопользовательская: второй экземпляр стека
 	 * параллельно с первым роняет ядро */
-	int lockfd = open("/tmp/.camsnap.lock", O_CREAT | O_RDWR, 0644);
+	int lockfd = open("/run/.camsnap.lock", O_CREAT | O_RDWR, 0644);
 	if (lockfd < 0 || flock(lockfd, LOCK_EX | LOCK_NB) < 0) {
 		printf("камера занята другим процессом\n");
 		return 2;

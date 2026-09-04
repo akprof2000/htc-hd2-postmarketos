@@ -22,7 +22,7 @@ shift 2
 say() { echo "$1"; }
 
 # 1. поднять приложение (старый замок мешает единственной копии)
-rm -f /tmp/.$(basename "$BIN").lock 2>/dev/null
+rm -f /run/.$(basename "$BIN").lock 2>/dev/null
 timeout 10 start-stop-daemon -b -S -x "/usr/local/bin/$BIN" 2>/dev/null
 
 # 2. дождаться окна, но не дольше 12 секунд

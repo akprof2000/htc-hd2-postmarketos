@@ -95,7 +95,10 @@ int main(int argc, char **argv)
 {
 	if (argc > 1)
 		pin = argv[1];
-	int lock = open("/tmp/.btagent.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+	/* Замок именно в /run: /tmp здесь чистится, и старый агент оставался
+	 * держать удалённый файл — новый заводил свой и работал вторым.
+	 * Два агента отвечают контроллеру наперегонки, и сопряжение рвётся. */
+	int lock = open("/run/btagent.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
 	if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
 		return 0;                       /* уже работает */
 	signal(SIGPIPE, SIG_IGN);

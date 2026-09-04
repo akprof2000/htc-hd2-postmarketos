@@ -66,7 +66,7 @@ int main(int argc, char **argv)
 	signal(SIGTERM, on_sig);
 	signal(SIGINT, on_sig);
 
-	int lockfd = open("/tmp/.camsnap.lock", O_CREAT | O_RDWR, 0644);
+	int lockfd = open("/run/.camsnap.lock", O_CREAT | O_RDWR, 0644);
 	if (lockfd < 0 || flock(lockfd, LOCK_EX | LOCK_NB) < 0) {
 		printf("камера занята\n");
 		return 2;

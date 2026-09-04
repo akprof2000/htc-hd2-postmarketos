@@ -1017,7 +1017,7 @@ int main(int argc, char **argv)
     if (argc > 1 && !strcmp(argv[1], "send") && argc > 2)
         return do_send(argv[2]);
 
-    int lock = open("/tmp/.mail.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
+    int lock = open("/run/.mail.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
     set_val[0] = &cfg.user;

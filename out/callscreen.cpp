@@ -256,7 +256,7 @@ static void click(int x, int y)
 int main(void)
 {
     // одна копия: демон может позвать нас несколько раз за звонок
-    int lock = open("/tmp/.callscreen.lock", O_CREAT | O_RDWR | O_CLOEXEC,
+    int lock = open("/run/.callscreen.lock", O_CREAT | O_RDWR | O_CLOEXEC,
                     0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
