@@ -742,8 +742,11 @@ static void key_in(XKeyEvent *e)
     draw();
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    // «phone-sms new» открывается сразу свежей перепиской: по
+    // уведомлению о новом сообщении нужна она, а не общий список
+    int open_newest = (argc > 1 && !strcmp(argv[1], "new"));
     int lock = open("/tmp/.sms.lock", O_CREAT | O_RDWR | O_CLOEXEC, 0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
         return 0;
@@ -874,6 +877,22 @@ int main(void)
             std::string peer = (cur >= 0 && cur < (int)threads.size())
                                ? threads[cur].peer : "";
             collect_messages();
+            if (open_newest && !threads.empty()) {
+                // самая свежая переписка — та, где последним пришло
+                // входящее; при равенстве берём последнюю в списке
+                int best = -1;
+                for (size_t i = 0; i < threads.size(); i++)
+                    if (!all[threads[i].ids.back()].out)
+                        best = (int)i;
+                if (best < 0)
+                    best = (int)threads.size() - 1;
+                cur = best;
+                screen = SCR_THREAD;
+                scroll = 0;
+                open_newest = 0;
+                draw();
+                continue;
+            }
             if (!peer.empty()) {       // после перечитывания остаёмся в том же
                 cur = -1;              // диалоге, а не вываливаемся в список
                 for (size_t i = 0; i < threads.size(); i++)

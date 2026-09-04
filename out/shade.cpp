@@ -176,7 +176,7 @@ static void collect_notes(void)
     std::string missed = readf("/run/phone/missed");
     if (!missed.empty() && missed != "0")
         notes.push_back({"Пропущенные вызовы: " + missed,
-                         "DISPLAY=:0 /usr/local/bin/phone-gui",
+                         "DISPLAY=:0 /usr/local/bin/phone-gui log",
                          "/run/phone/missed"});
     std::string sms = readf("/run/phone/sms_new");
     int cnt = 0;
@@ -188,7 +188,7 @@ static void collect_notes(void)
     if (cnt) {
         char b[64];
         snprintf(b, sizeof(b), "Новых SMS: %d", cnt);
-        notes.push_back({b, "DISPLAY=:0 /usr/local/bin/phone-sms",
+        notes.push_back({b, "DISPLAY=:0 /usr/local/bin/phone-sms new",
                          "/run/phone/sms_new"});
     }
     std::string cron = capture("crontab -l 2>/dev/null");

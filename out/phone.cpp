@@ -358,8 +358,11 @@ static void click(int x, int y)
     }
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    // «phone-gui log» открывается сразу журналом: по уведомлению о
+    // пропущенных вызовах нужен именно он, а не пустая клавиатура
+    int start_log = (argc > 1 && !strcmp(argv[1], "log"));
     int lock = open("/run/phone/gui.lock", O_CREAT | O_RDWR | O_CLOEXEC,
                     0644);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) < 0)
@@ -411,6 +414,11 @@ int main(void)
     XftColorAllocValue(dpy, vis, cm, &dc, &c_dim);
     XftColorAllocValue(dpy, vis, cm, &yc, &c_warn);
     XftColorAllocValue(dpy, vis, cm, &gc2, &c_ok);
+
+    if (start_log) {
+        load_history();
+        hist_open = 1;
+    }
 
     int xfd = ConnectionNumber(dpy);
     for (;;) {
