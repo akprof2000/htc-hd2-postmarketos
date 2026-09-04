@@ -285,7 +285,8 @@ int main(void)
     sh_.width = sh_.min_width = sh_.max_width = W;
     sh_.height = sh_.min_height = sh_.max_height = H;
     XSetWMNormalHints(dpy, win, &sh_);
-    XSelectInput(dpy, win, ExposureMask | ButtonPressMask);
+    XSelectInput(dpy, win, ExposureMask | ButtonPressMask |
+                 ButtonReleaseMask | Button1MotionMask);
     XMapWindow(dpy, win);
 
     buf = XCreatePixmap(dpy, win, W, H, DefaultDepth(dpy, scr));
@@ -308,6 +309,7 @@ int main(void)
 
     int xfd = ConnectionNumber(dpy);
     time_t last_slow = 0;
+    int swipe_from = 0, swipe_done = 0;
     for (;;) {
         while (XPending(dpy)) {
             XEvent e;
@@ -315,8 +317,11 @@ int main(void)
             if (e.type == Expose) {
                 draw();
             } else if (e.type == ButtonPress) {
+                swipe_from = e.xbutton.y_root;
+                swipe_done = 0;
                 if (have_close && e.xbutton.x >= close_x &&
                     e.xbutton.x < close_x + CLOSE_W) {
+                    swipe_done = 1;    // это нажатие на крестик, не свайп
                     // именно по номеру окна: к моменту нажатия активной
                     // становится сама полоска, и :ACTIVE: закрыл бы её
                     if (active) {
@@ -326,7 +331,13 @@ int main(void)
                                  (unsigned long)active);
                         sh(cmd);
                     }
-                } else {
+                }
+            } else if (e.type == MotionNotify) {
+                // шторка открывается протягиванием вниз, а не тапом:
+                // случайное касание полоски больше её не дёргает
+                if (!swipe_done && (e.xmotion.state & Button1Mask) &&
+                    e.xmotion.y_root - swipe_from > 20) {
+                    swipe_done = 1;
                     sh("DISPLAY=:0 /usr/local/bin/shade");
                 }
             }
@@ -353,6 +364,20 @@ int main(void)
         } else if (t.empty() && win_name(a) == "Домой") {
             active = 0;
             title = "";
+        }
+        // Запомненное окно могло уже закрыться — тогда крестику нечего
+        // закрывать, и он обязан исчезнуть. Раньше он оставался висеть,
+        // если после закрытия фокус уходил на служебное окно.
+        if (active) {
+            XWindowAttributes wa;
+            int (*old)(Display *, XErrorEvent *) = XSetErrorHandler(x_error);
+            int ok = XGetWindowAttributes(dpy, active, &wa) &&
+                     wa.map_state == IsViewable;
+            XSetErrorHandler(old);
+            if (!ok) {
+                active = 0;
+                title = "";
+            }
         }
         // медленные проверки — раз в 30 с
         time_t now = time(NULL);

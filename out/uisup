@@ -15,9 +15,12 @@
 # через start-stop-daemon -b: он раздваивает процесс, родителем
 # становится init, и зомби больше не остаются.
 
-# жив ли хоть один НЕ зомби по образцу
+# жив ли хоть один НЕ зомби с таким именем.
+# Именно -x по имени, а не -f по строке запуска: строка «/usr/local/bin/home»
+# есть и в командной строке самого ui.start, и супервизор считал бы службу
+# живой всегда.
 alive() {
-    for p in $(pgrep -f "$1" 2>/dev/null); do
+    for p in $(pgrep -x "$1" 2>/dev/null); do
         state=$(sed -n 's/^State:\t\(.\).*/\1/p' "/proc/$p/status" 2>/dev/null)
         [ -n "$state" ] && [ "$state" != "Z" ] && return 0
     done
@@ -25,18 +28,18 @@ alive() {
 }
 
 while :; do
-    alive '/usr/local/bin/home' || \
+    alive home || \
         DISPLAY=:0 start-stop-daemon -b -S -x /usr/local/bin/home
 
-    alive '/usr/local/bin/keysd' || \
+    alive keysd || \
         start-stop-daemon -b -S -x /usr/local/bin/keysd
 
-    alive '/usr/local/bin/statusbar' || \
+    alive statusbar || \
         DISPLAY=:0 start-stop-daemon -b -S -x /usr/local/bin/statusbar
 
     # шторка — резидент с каналом /run/shade.fifo; без него тап по
     # полоске ничего не открывает, а запись в канал без читателя виснет
-    alive '/usr/local/bin/shade --daemon' || \
+    alive shade || \
         DISPLAY=:0 start-stop-daemon -b -S -x /usr/local/bin/shade -- --daemon
 
     sleep 5

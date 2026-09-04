@@ -222,7 +222,9 @@ static int text_w(XftFont *fn, const char *s)
 }
 
 static const int TOG_Y = 92, TOG_H = 74, TOG_COLS = 4;
-static const int NOTE_Y = 268, NOTE_H = 56;
+// NOTE_Y-10 — базовая линия подписи «Уведомления»: буквы уходят вверх,
+// и при 268 она ложилась на нижний ряд тумблеров (тот кончается на 246)
+static const int NOTE_Y = 292, NOTE_H = 56;
 static const int CLOSE_Y = H - 54;
 
 static void draw(void)
