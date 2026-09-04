@@ -17,11 +17,22 @@ export DISPLAY=:0
 export SDL_VIDEODRIVER=x11
 export HOME=/root
 
-# одна копия за раз
+# Одна копия за раз. Проверяем не только процесс, но и ОКНО: Rockbox
+# завершается неспешно («Shutting down…»), и запуск, наткнувшись на
+# уходящую копию, просто передавал ей нажатия впустую.
 if pgrep -x rockbox >/dev/null 2>&1; then
     W=$(wmctrl -l 2>/dev/null | awk '/Rockbox/{print $1}' | tail -1)
-    [ -n "$W" ] && wmctrl -i -a "$W"
-    exit 0
+    if [ -n "$W" ]; then
+        wmctrl -i -a "$W"
+        xdotool windowactivate --sync "$W" 2>/dev/null
+        exit 0
+    fi
+    # окна нет — значит копия умирает; дождёмся и запустим заново
+    i=0
+    while pgrep -x rockbox >/dev/null 2>&1 && [ $i -lt 60 ]; do
+        i=$((i + 1))
+        sleep 0.5
+    done
 fi
 
 cd /root || exit 1
@@ -33,6 +44,9 @@ while [ $i -lt 30 ]; do
     W=$(wmctrl -l 2>/dev/null | awk '/Rockbox/{print $1}' | tail -1)
     if [ -n "$W" ]; then
         sleep 1
+        # окно ровно под нашей строкой состояния (24 px), иначе она
+        # закрывает верхнюю строку самого Rockbox
+        xdotool windowmove "$W" 0 24 2>/dev/null
         xdotool windowactivate --sync "$W" 2>/dev/null
         exit 0
     fi
