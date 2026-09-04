@@ -25,16 +25,16 @@ LOG=/var/log/xwatchd.log
 bad=0
 
 while :; do
-    sleep 60
+    sleep 30
     # экран погашен — спящему телефону сторож не нужен
     [ "$(cat $BL 2>/dev/null)" = "0" ] && { bad=0; continue; }
 
     if ! DISPLAY=:0 timeout 10 xset -q >/dev/null 2>&1; then
         bad=$((bad + 1))
-        echo "$(date +%H:%M:%S) X не отвечает ($bad из 3)" >> $LOG
+        echo "$(date +%H:%M:%S) X не отвечает ($bad из 3, проверка раз в 30 с)" >> $LOG
     elif ! DISPLAY=:0 timeout 15 /usr/local/bin/fbprobe; then
         bad=$((bad + 1))
-        echo "$(date +%H:%M:%S) рисование не доходит до экрана ($bad из 3)" \
+        echo "$(date +%H:%M:%S) рисование не доходит до экрана ($bad из 3, проверка раз в 30 с)" \
             >> $LOG
     else
         bad=0                       # всё в порядке
@@ -42,7 +42,7 @@ while :; do
     fi
 
     if [ $bad -ge 3 ]; then
-        echo "$(date +%H:%M:%S) три минуты подряд — перезапуск графики" >> $LOG
+        echo "$(date +%H:%M:%S) полторы минуты подряд — перезапуск графики" >> $LOG
         /usr/local/bin/x-restart >/dev/null 2>&1
         bad=0
     fi
