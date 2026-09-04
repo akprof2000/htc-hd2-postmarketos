@@ -12,6 +12,18 @@ while [ $i -lt 25 ]; do
     grep -q 'setup complete' /tmp/btattach.log 2>/dev/null && break
     i=$((i+1)); sleep 1
 done
+# Заплатку прошивки грузим САМИ. hciattach её не находит ни в одном
+# каталоге («Patch not found for BCM4329B1, continue anyway»), и чип
+# остаётся на базовом ПЗУ: команды выполняет, а радио молчит — телефон
+# никого не видит и сам невидим. Проверено 04.09: после заливки ревизия
+# прошивки меняется с 0x0 на 0x2f0 и поиск сразу находит устройства.
+hciconfig hci0 up 2>/dev/null
+sleep 1
+/usr/local/bin/btpatch >/tmp/btpatch.log 2>&1
+# заливка сбрасывает адрес в мусорный — возвращаем свой (0xFC01)
+hcitool -i hci0 cmd 0x3f 0x01 0x89 0x4b 0x45 0x93 0x61 0x7c >/dev/null 2>&1
+sleep 1
+hciconfig hci0 down 2>/dev/null
 hciconfig hci0 up 2>/dev/null
 sleep 1
 hcitool -i hci0 cmd 0x3f 0x27 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00     0x00 0x00 0x00 0x00 >/dev/null 2>&1
