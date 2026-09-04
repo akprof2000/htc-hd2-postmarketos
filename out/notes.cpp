@@ -119,10 +119,12 @@ static void draw(void)
         text(f_txt, &c_fg, 16, y, lines[i].c_str());
         y += 24;
     }
-    // курсор в конце последней строки
+    // Курсор в конце последней строки. После цикла y уже на строку ниже
+    // последней — отсюда и минус целая строка, иначе курсор стоял под
+    // текстом, а не рядом с ним.
     int cx = 16 + tw(f_txt, lines.back().c_str());
     XSetForeground(dpy, gc, 0xe8eef5);
-    XFillRectangle(dpy, buf, gc, cx + 2, y - 18, 2, 18);
+    XFillRectangle(dpy, buf, gc, cx + 2, y - 42, 2, 18);
 
     const char *s = "сохраняется автоматически";
     text(f_small, &c_dim, (W - tw(f_small, s)) / 2, H - 12, s);

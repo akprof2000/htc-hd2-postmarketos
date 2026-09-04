@@ -73,7 +73,7 @@ static std::vector<Row> rows;
 static void collect(void)
 {
     rows.clear();
-    rows.push_back({"Модель", "HTC HD2 (Leo) · postmarketOS"});
+    rows.push_back({"Модель", "HTC HD2 (Leo) · pmOS"});
     struct utsname u;
     if (uname(&u) == 0)
         rows.push_back({"Ядро", u.release});
@@ -86,7 +86,12 @@ static void collect(void)
 
     std::string cap = readf("/sys/class/power_supply/battery/capacity");
     std::string st = readf("/sys/class/power_supply/battery/status");
-    rows.push_back({"Батарея", cap + "% " + st});
+    const char *ru = "?";                // ядро отвечает по-английски
+    if (st == "Charging") ru = "заряжается";
+    else if (st == "Full") ru = "заряжена";
+    else if (st == "Discharging") ru = "разряжается";
+    else if (st == "Not charging") ru = "не заряжается";
+    rows.push_back({"Батарея", cap + "% · " + ru});
 
     // память: свободно = MemFree + Buffers + Cached
     std::string mi = readf("/proc/meminfo");
