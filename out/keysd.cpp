@@ -39,8 +39,7 @@ static const double BTN_LIGHT = 3.0;
 // Окна, где нужен ввод текста — там клавиатура показывается сама.
 // Сообщений в списке НЕТ: они просят клавиатуру сами (см. kbd_asked),
 // иначе она вылезала бы и при чтении переписки.
-static const char *TYPING[] = {"xfce4-terminal", "notes", "dillo",
-                               "mailapp", NULL};
+static const char *TYPING[] = {"xfce4-terminal", "notes", "dillo", NULL};
 
 // Приложение может попросить клавиатуру меткой /run/kbd.want со своим
 // pid: так решает оно само, а не мы по классу окна. Если хозяин метки

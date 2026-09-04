@@ -18,5 +18,14 @@ DISPLAY=:0 xset s off -dpms 2>/dev/null
 setsid icewm </dev/null >/dev/null 2>&1 &
 sleep 3
 sleep 3
-echo "X=$(pgrep -c Xorg) icewm=$(pgrep -c icewm) term=$(pgrep -c xfce4-termina)"
+# Службы оболочки надо поднимать самим. Их X-соединение умирает вместе
+# со старым сервером, а pkill dbus-run-session в начале уносит заодно и
+# супервизор ui.start (тот запущен под dbus-run-session, шаблон совпадает).
+# Без этой строки после перезапуска графики оставались только X и icewm:
+# ни домашнего экрана, ни полоски, ни кнопок — ровно то, что выглядело
+# как «пропала домашняя страница».
+pgrep -x uisup >/dev/null 2>&1 ||     setsid /usr/local/bin/uisup </dev/null >/dev/null 2>&1 &
+sleep 6
+
+echo "X=$(pgrep -c Xorg) icewm=$(pgrep -c icewm) uisup=$(pgrep -xc uisup) home=$(pgrep -xc home)"
 grep -i 'DPI set' /var/log/Xorg.0.log | tail -1
