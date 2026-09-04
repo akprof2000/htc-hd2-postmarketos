@@ -197,7 +197,7 @@ static void collect_notes(void)
         if (sscanf(cron.c_str() + ls, "%d %d", &mi, &hh) == 2) {
             char b[64];
             snprintf(b, sizeof(b), "Будильник на %02d:%02d", hh, mi);
-            notes.push_back({b, "DISPLAY=:0 /usr/local/bin/clock-app"});
+            notes.push_back({b, "DISPLAY=:0 /usr/local/bin/clock"});
         }
     }
     std::string cap = readf("/sys/class/power_supply/battery/capacity");
