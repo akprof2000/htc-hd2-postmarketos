@@ -62,6 +62,20 @@ static std::string status = "готова";
 static unsigned char *rgba;                  // PV_W*PV_H*4
 static XImage *img;
 static int have_frame = 0;
+// Живое превью НЕ включается само (04.09.2026). Связка «превью → снимок»
+// роняет ядро три раза из трёх: камерный стек не переживает второй
+// запуск за сеанс. Поэтому по умолчанию камера открывается без потока —
+// снимок делается на единственном запуске стека. Превью включается
+// тапом по чёрному окошку, для наводки.
+static int pv_on = 0;
+
+// Снимок ВЕШАЕТ ТЕЛЕФОН (проверено 04.09.2026 трижды: с превью и без
+// него, на свежем запуске стека — каждый раз ядро уходит в себя, живёт
+// только сеть, спасает лишь перезагрузка по питанию). Причина не в
+// разделении интерфейса и конвейера: camsnap валит аппарат сам по себе.
+// Пока не разобрались — кнопка спрашивает подтверждение, чтобы никто не
+// потерял телефон случайным касанием.
+static double arm_at = 0;
 static time_t pv_mtime = 0;
 
 // Матрица повёрнута относительно портретного экрана. Угол берём из
@@ -318,9 +332,17 @@ static void draw(void)
     if (have_frame)
         XPutImage(dpy, pixbuf, gc, img, 0, 0, PV_X, PV_Y, PV_W, PV_H);
     else {
-        const char *t = "HTC HD2 · 5 Мп";
-        text(f_btn, &c_dim, PV_X + (PV_W - tw(f_btn, t)) / 2, PV_Y + PV_H / 2,
-             t);
+        const char *t1 = "HTC HD2 · 5 Мп";
+        const char *t2 = pv_on ? "поток запускается…"
+                               : "нажмите здесь, чтобы навести";
+        const char *t3 = pv_on ? "" : "снимок надёжнее без превью";
+        text(f_btn, &c_dim, PV_X + (PV_W - tw(f_btn, t1)) / 2,
+             PV_Y + PV_H / 2 - 30, t1);
+        text(f_btn, &c_dim, PV_X + (PV_W - tw(f_btn, t2)) / 2,
+             PV_Y + PV_H / 2 + 8, t2);
+        if (t3[0])
+            text(f_small, &c_dim, PV_X + (PV_W - tw(f_small, t3)) / 2,
+                 PV_Y + PV_H / 2 + 38, t3);
     }
     text(f_small, &c_dim, (W - tw(f_small, status.c_str())) / 2, ST_Y,
          status.c_str());
@@ -408,6 +430,24 @@ static std::string last_line(const char *path)
 
 static void click(int x, int y)
 {
+    if (y >= PV_Y && y < PV_Y + PV_H) {       // тап по окошку — поток
+        if (job || countdown > 0)
+            return;
+        if (pv_on) {
+            if (!pv_stop()) {
+                status = "поток не останавливается";
+                return;
+            }
+            pv_on = 0;
+            have_frame = 0;
+            status = "превью выключено";
+        } else {
+            pv_start();
+            pv_on = 1;
+            status = "превью включено — снимок теперь рискован";
+        }
+        return;
+    }
     int hw = (W - 22) / 2;
     if (y >= R1_Y && y < R1_Y + ROW_H) {
         if (x < 8 + hw) mode = (mode + 1) % 3;
@@ -423,6 +463,12 @@ static void click(int x, int y)
         if (job || countdown > 0)
             return;
         if (x < 12 + 300) {
+            if (now_s() - arm_at > 6.0) {     // первое нажатие — только
+                arm_at = now_s();             // предупреждение
+                status = "снимок вешает телефон — нажмите ещё раз";
+                return;
+            }
+            arm_at = 0;
             if (TIMERS[timer_i] > 0) {
                 countdown = TIMERS[timer_i];
                 countdown_at = time(NULL) + 1;
@@ -489,7 +535,6 @@ int main(void)
     img = XCreateImage(dpy, vis, 24, ZPixmap, 0, (char *)rgba, PV_W, PV_H,
                        32, PV_W * 4);
     load_rot();
-    pv_start();
 
     int xfd = ConnectionNumber(dpy);
     for (;;) {
@@ -536,10 +581,10 @@ int main(void)
                 status = res.empty() ? "готово" : res.substr(0, 60);
             job = 0;
             job_video = 0;
-            pv_start();
+            pv_on = 0;                        // второй запуск стека опасен
             draw();
         }
-        if (!job && countdown == 0 && now_s() >= pv_hold) {
+        if (pv_on && !job && countdown == 0 && now_s() >= pv_hold) {
             pv_read();
             draw();
         }
