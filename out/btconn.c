@@ -85,7 +85,10 @@ int main(int argc, char **argv)
 	unsigned char conn[13];
 	memcpy(conn, dst, 6);
 	conn[6] = 0x18; conn[7] = 0xcc;   /* пакеты DM1..DH5 */
-	conn[8] = 0x02;                   /* page scan repetition mode R2 */
+	/* режим повторения страничного сканирования: R2 по умолчанию,
+	 * вторым аргументом можно задать 0 или 1 — на некоторых устройствах
+	 * вызов проходит только с «их» режимом */
+	conn[8] = argc > 2 ? (unsigned char)atoi(argv[2]) : 0x02;
 	conn[9] = 0x00;
 	conn[10] = 0x00; conn[11] = 0x00; /* clock offset неизвестен */
 	conn[12] = 0x01;                  /* смена роли разрешена */
