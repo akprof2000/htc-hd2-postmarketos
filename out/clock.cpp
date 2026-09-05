@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, KEY = 0x1c2a40, ACC = 0x1f7a33,
                            RED = 0xa4262c;
 static const char *TAG = "# icemobile-alarm";

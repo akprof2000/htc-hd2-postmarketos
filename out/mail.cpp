@@ -540,7 +540,7 @@ static int do_send(const char *to)
 }
 
 // ── интерфейс ────────────────────────────────────────────────────────
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101418, KEYC = 0x1c2530, ACCENT = 0x2e7d32,
                            FIELD = 0x1c2530;
 static const int HEAD_H = 56, ROW_H = 92, BAR_H = 62, SEND_W = 84;

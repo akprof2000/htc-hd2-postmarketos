@@ -18,7 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, BTN = 0x33415c;
 static const int HEAD_Y = 44, HINT_Y = 72;
 static const int GRID_X = 6, GRID_Y = 96, CELL = 114, PAD = 4;

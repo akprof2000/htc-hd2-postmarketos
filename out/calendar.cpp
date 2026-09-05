@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, KEY = 0x1c2a40, TODAY = 0x1f7a33;
 static const int NAV_Y = 12, NAV_H = 58;
 static const int WD_Y = 96;                 // строка «Пн Вт …»

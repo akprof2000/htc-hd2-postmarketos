@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101418, KEYC = 0x1c2530, ACCENT = 0x2e7d32,
                            FIELD = 0x1c2530, RED = 0xa4262c, BLUE = 0x0a6ebd;
 static const char *FILEPATH = "/root/.contacts";

@@ -20,7 +20,7 @@
 
 #include <string>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, KEYC = 0x1c2a40, OPC = 0x33415c,
                            EQC = 0x1f7a33;
 static const int DISP_H = 110, PAD = 8, GAP = 6;

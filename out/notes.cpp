@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 488, WIN_Y = 24;   // снизу место под клавиатуру
+static const int W = 480, H = 464, WIN_Y = 48;   // снизу место под клавиатуру
 static const unsigned long BG = 0x101828, FIELD = 0x1c2a40;
 static const char *FILEPATH = "/root/notes.txt";
 

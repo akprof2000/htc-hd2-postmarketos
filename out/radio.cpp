@@ -40,7 +40,7 @@ struct sockaddr_hci_ {
     unsigned short channel;
 };
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const int BAND_LO = 87500, BAND_HI = 108000, FREQ_BASE = 64000;
 static const unsigned long BG = 0x101828, FG_C = 0xe8eef5, DIM_C = 0x7c8794,
                            KEYC = 0x1c2a40, ACC = 0x1f7a33, RED = 0xa4262c;

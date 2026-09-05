@@ -32,7 +32,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101418, KEYC = 0x1c2530, ACCENT = 0x2e7d32,
                            FIELD = 0x1c2530, OUTC = 0x2e5c34;
 static const char *RUN = "/run/phone";

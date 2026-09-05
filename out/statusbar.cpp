@@ -25,7 +25,11 @@
 
 #include <string>
 
-static const int W = 480, H = 24;
+/* Строка состояния вдвое выше прежней: на этом экране 24 точки читались
+ * с трудом. Высота задана здесь одним числом, всё остальное считается от
+ * него — базовая линия текста берётся из метрик шрифта. */
+static const int W = 480, H = 48;
+static int base_y = H / 2;              /* базовая линия, см. setup */
 static const unsigned long BG = 0x000000, RED = 0xa4262c;
 
 static Display *dpy;
@@ -34,7 +38,7 @@ static Window win;
 static Pixmap buf;
 static GC gc;
 static XftDraw *xd;
-static XftFont *f_small, *f_bold, *f_sym;
+static XftFont *f_small, *f_bold, *f_sym, *f_title;
 static XftColor c_fg, c_dim, c_red, c_ok;
 
 static std::string title;              // заголовок активного окна
@@ -161,7 +165,7 @@ static int tw(XftFont *fn, const char *s)
 }
 
 static int wifi_up = 0, alarm_set = 0;
-static const int CLOSE_W = 30;
+static const int CLOSE_W = 60;
 static int close_x = 0;
 
 static void draw(void)
@@ -186,8 +190,8 @@ static void draw(void)
         if (wifi_up)
             left += " W";
     }
-    text(f_small, &c_dim, 3, 17, left.c_str());
-    int lx = 6 + tw(f_small, left.c_str());
+    text(f_small, &c_dim, 6, base_y, left.c_str());
+    int lx = 12 + tw(f_small, left.c_str());
 
     // справа: заряд
     std::string cap = readf("/sys/class/power_supply/battery/capacity");
@@ -195,17 +199,17 @@ static void draw(void)
     std::string bat = ((chg == "Charging" || chg == "Full") ? "⚡" : "")
                       + cap + "%";
     int low = !cap.empty() && atoi(cap.c_str()) <= 20 && chg == "Discharging";
-    int bx = W - 4 - tw(f_bold, bat.c_str());
-    text(f_bold, low ? &c_red : &c_dim, bx, 17, bat.c_str());
+    int bx = W - 8 - tw(f_bold, bat.c_str());
+    text(f_bold, low ? &c_red : &c_dim, bx, base_y, bat.c_str());
 
     // кнопка закрытия активного окна
     have_close = !title.empty();
     close_x = bx - CLOSE_W - 4;
     if (have_close) {
         XSetForeground(dpy, gc, RED);
-        XFillRectangle(dpy, buf, gc, close_x, 2, CLOSE_W, H - 4);
+        XFillRectangle(dpy, buf, gc, close_x, 4, CLOSE_W, H - 8);
         const char *x = "✕";
-        text(f_bold, &c_fg, close_x + (CLOSE_W - tw(f_bold, x)) / 2, 17, x);
+        text(f_bold, &c_fg, close_x + (CLOSE_W - tw(f_bold, x)) / 2, base_y, x);
     }
 
     // значки событий
@@ -226,15 +230,15 @@ static void draw(void)
         ev += "☀";
     int ex = (have_close ? close_x : bx) - 6 - tw(f_sym, ev.c_str());
     if (!ev.empty())
-        text(f_sym, &c_ok, ex, 17, ev.c_str());
+        text(f_sym, &c_ok, ex, base_y, ev.c_str());
 
     // заголовок активного окна — по центру оставшегося места
     if (!title.empty()) {
         std::string t = title;
         int room = ex - lx - 8;
-        while (!t.empty() && tw(f_bold, t.c_str()) > room)
+        while (!t.empty() && tw(f_title, t.c_str()) > room)
             t.erase(t.size() - 1);
-        text(f_bold, &c_fg, lx + 6, 17, t.c_str());
+        text(f_title, &c_fg, lx + 6, base_y, t.c_str());
     }
 
     XCopyArea(dpy, buf, win, gc, 0, 0, W, H, 0, 0);
@@ -293,9 +297,16 @@ int main(void)
     gc = XCreateGC(dpy, buf, 0, NULL);
     xd = XftDrawCreate(dpy, buf, DefaultVisual(dpy, scr),
                        DefaultColormap(dpy, scr));
-    f_small = XftFontOpenName(dpy, scr, "DejaVu Sans:size=9");
-    f_bold = XftFontOpenName(dpy, scr, "DejaVu Sans:size=9:bold");
-    f_sym = XftFontOpenName(dpy, scr, "DejaVu Sans:size=10");
+    f_small = XftFontOpenName(dpy, scr, "DejaVu Sans:size=15");
+    f_bold = XftFontOpenName(dpy, scr, "DejaVu Sans:size=15:bold");
+    f_sym = XftFontOpenName(dpy, scr, "DejaVu Sans:size=16");
+    /* заголовку — шрифт помельче: рядом с крупным зарядом и крестиком
+     * длинные названия («Калькулятор», «Контакты») иначе не влезают */
+    f_title = XftFontOpenName(dpy, scr, "DejaVu Sans:size=12:bold");
+    /* базовая линия — по метрикам шрифта, чтобы текст стоял ровно
+     * посередине полосы при любой её высоте */
+    if (f_bold)
+        base_y = (H + f_bold->ascent - f_bold->descent) / 2;
     XRenderColor wc = {0xe8e8, 0xeeee, 0xf5f5, 0xffff};
     XRenderColor dc = {0x9a9a, 0xa4a4, 0xb0b0, 0xffff};
     XRenderColor rc = {0xefef, 0x5353, 0x5050, 0xffff};

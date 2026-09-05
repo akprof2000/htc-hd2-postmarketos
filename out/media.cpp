@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, KEY = 0x1c2a40, SEL = 0x2a3a4a,
                            ACC = 0x1f7a33, STOP = 0xa4262c;
 static const int NOW_Y = 34;

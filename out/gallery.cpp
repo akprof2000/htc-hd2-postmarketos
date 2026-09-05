@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const int IMG_W = 480, IMG_H = 700, IMG_Y = 10;
 static const unsigned long BG = 0x000000;
 

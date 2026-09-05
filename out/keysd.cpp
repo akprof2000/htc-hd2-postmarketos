@@ -142,6 +142,36 @@ static int fm_active(void)
     return readf("/sys/class/htc_accessory/fm/flag") == "fm_headset";
 }
 
+/* ── когда впереди Rockbox ────────────────────────────────────────
+ * У плеера своя раскладка, и наши общие действия ему мешают: «назад»
+ * закрывала его целиком, а качалка меняла общесистемную громкость
+ * вместо громкости музыки. Поэтому, пока его окно впереди, клавиши
+ * передаём ему теми нажатиями, которые он понимает (сетка 3x3):
+ *     KP_8 — громче, KP_2 — тише, KP_4 — назад, KP_7 — меню.
+ * Ответ xdotool держим секунду, чтобы не запускать его на каждое
+ * нажатие при удержании.
+ */
+static int rockbox_front(void)
+{
+    static double asked = 0;
+    static int cached = 0;
+    double t = now_s();
+    if (t - asked < 1.0)
+        return cached;
+    asked = t;
+    std::string n = capture("DISPLAY=:0 xdotool getactivewindow "
+                            "getwindowname 2>/dev/null");
+    cached = n.find("Rockbox") != std::string::npos;
+    return cached;
+}
+
+static void rockbox_key(const char *key)
+{
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "DISPLAY=:0 xdotool key %s", key);
+    sh(cmd);
+}
+
 static void set_hw_volume(int vol)
 {
     int fd = open("/dev/msm_audio_ctl", O_RDWR);
@@ -316,8 +346,18 @@ int main(void)
                     press_at[ev.code & 511] = now_s();
                     std::string st = call_state();
                     switch (ev.code) {
-                    case K_VOLUP:   volume_step(+volume_next_step()); break;
-                    case K_VOLDOWN: volume_step(-volume_next_step()); break;
+                    case K_VOLUP:
+                        if (rockbox_front())
+                            rockbox_key("KP_8");
+                        else
+                            volume_step(+volume_next_step());
+                        break;
+                    case K_VOLDOWN:
+                        if (rockbox_front())
+                            rockbox_key("KP_2");
+                        else
+                            volume_step(-volume_next_step());
+                        break;
                     case K_SEND:
                         if (st == "ringing")
                             at_cmd("ATA");
@@ -335,9 +375,16 @@ int main(void)
                         sh("DISPLAY=:0 wmctrl -a 'Домой'");
                         break;
                     case K_MENU:
-                        sh("DISPLAY=:0 /usr/local/bin/sysmenu");
+                        if (rockbox_front())
+                            rockbox_key("KP_7");     // меню плеера
+                        else
+                            sh("DISPLAY=:0 /usr/local/bin/sysmenu");
                         break;
                     case K_BACK:
+                        if (rockbox_front()) {
+                            rockbox_key("KP_4");     // шаг назад внутри
+                            break;
+                        }
                         sh("DISPLAY=:0 sh -c '"
                            "n=$(xdotool getactivewindow getwindowname "
                            "2>/dev/null); [ \"$n\" != \"Домой\" ] && "
@@ -346,10 +393,17 @@ int main(void)
                     }
                 } else if (ev.value == 2) {    // удержание: сам повторяет
                     beep_allowed = 0;          // без звука: он бы захлебнулся
-                    if (ev.code == K_VOLUP)
-                        volume_step(+volume_next_step());
-                    else if (ev.code == K_VOLDOWN)
-                        volume_step(-volume_next_step());
+                    if (ev.code == K_VOLUP) {
+                        if (rockbox_front())
+                            rockbox_key("KP_8");
+                        else
+                            volume_step(+volume_next_step());
+                    } else if (ev.code == K_VOLDOWN) {
+                        if (rockbox_front())
+                            rockbox_key("KP_2");
+                        else
+                            volume_step(-volume_next_step());
+                    }
                     beep_allowed = 1;
                 } else if (ev.value == 0) {    // отпускание
                     double d = now_s() - press_at[ev.code & 511];

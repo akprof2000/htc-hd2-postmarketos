@@ -30,7 +30,7 @@
 
 #include <string>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828, KEY = 0x1c2a40, ACC = 0x1f7a33,
                            WARN = 0x8a5a2e, VID = 0x2c5aa4;
 

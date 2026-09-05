@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-static const int WIN_W = 480, WIN_H = 776, WIN_Y = 24;
+static const int WIN_W = 480, WIN_H = 752, WIN_Y = 48;
 static const int TILE_H = 118, PAD = 5, COLS = 2;
 static const int HEAD_H = 96;          // часы и дата
 static const unsigned long BG = 0x000000;

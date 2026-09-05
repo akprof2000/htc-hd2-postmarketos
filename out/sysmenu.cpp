@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 
-static const int W = 480, H = 776, WIN_Y = 24;
+static const int W = 480, H = 752, WIN_Y = 48;
 static const unsigned long BG = 0x101828;
 
 // cmd == NULL — «Отмена»; cmd == "" — «закрыть запомненное окно»
