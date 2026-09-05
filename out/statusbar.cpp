@@ -46,6 +46,15 @@ static Window active = 0;              // и оно само — для крес
 static int have_close = 0;
 
 // ── чтение системы ───────────────────────────────────────────────────
+static void writef(const char *path, const char *val)
+{
+    int fd = open(path, O_WRONLY | O_TRUNC);
+    if (fd < 0)
+        return;
+    if (write(fd, val, strlen(val)) < 0) { /* не критично */ }
+    close(fd);
+}
+
 static std::string readf(const char *path)
 {
     int fd = open(path, O_RDONLY);
@@ -228,6 +237,26 @@ static void draw(void)
     std::string torch = readf("/sys/class/leds/flashlight/brightness");
     if (!torch.empty() && torch != "0")
         ev += "☀";
+    // Светодиод: пока есть непрочитанное — зелёный мигает (раз в секунду,
+    // в такт нашей перерисовке; аппаратный blink драйвер не принимает),
+    // как только всё прочитано — гаснет и возвращается ядру: то зажигает
+    // его зелёным при полной зарядке. Янтарный при зарядке — тоже ядро,
+    // триггер battery-charging ставится в ui.start.
+    {
+        static int led_state = -1, led_phase = 0;
+        int notif = sms || (!missed.empty() && missed != "0");
+        if (notif) {
+            if (led_state != 1)
+                writef("/sys/class/leds/green/trigger", "none");
+            led_phase = !led_phase;
+            writef("/sys/class/leds/green/brightness", led_phase ? "255" : "0");
+            led_state = 1;
+        } else if (led_state != 0) {
+            writef("/sys/class/leds/green/brightness", "0");
+            writef("/sys/class/leds/green/trigger", "battery-full");
+            led_state = 0;
+        }
+    }
     int ex = (have_close ? close_x : bx) - 6 - tw(f_sym, ev.c_str());
     if (!ev.empty())
         text(f_sym, &c_ok, ex, base_y, ev.c_str());

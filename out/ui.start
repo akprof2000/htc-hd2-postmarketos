@@ -16,6 +16,10 @@ set -x 2>&9
 	# самого старта, чтобы и никакая случайная просьба «mem» не увела
 	# телефон туда; сон экрана при этом остаётся.
 	echo nosuspend > /sys/power/wake_lock 2>/dev/null
+	# Светодиоды: янтарный горит при зарядке, зелёный при полной — это
+	# умеет само ядро; уведомлениями зелёным мигает строка состояния.
+	echo battery-charging > /sys/class/leds/amber/trigger 2>/dev/null
+	echo battery-full > /sys/class/leds/green/trigger 2>/dev/null
 	setsid /usr/local/bin/btsetup >/dev/null 2>&1 &
 	setsid /usr/local/bin/phoned </dev/null >>/var/log/phoned.log 2>&1 &
 	/usr/local/bin/backlight 180 >/dev/null 2>&1
