@@ -46,6 +46,9 @@ static unsigned char dst[6];
 static unsigned short handle = 0;
 static int acl_mtu = 1021, credits = 6;
 static int debug = 0;
+/* номера НАШИХ каналов (см. sig_scid): по ним отличаем свои сигналы
+ * от сигналов к каналам ядра */
+static unsigned short my_scids[4] = { 0x0070, 0x0071, 0, 0 };
 
 static void hexline(const char *what, const unsigned char *d, int n)
 {
@@ -324,24 +327,34 @@ static void l2_sig(unsigned char code, unsigned char id,
 	l2_send(0x0001, b, 4 + n);
 }
 
-/* ответы на чужие сигналы (их Config Request и прочее) */
+/* Ответы на сигналы устройства. Отвечаем ТОЛЬКО за свои каналы:
+ * Information/Echo Request и Config Request к каналам ядра (SDP-
+ * держатель) ядро обслуживает само; наш второй ответ ему бы мешал. */
+static int is_my_cid(unsigned short cid)
+{
+	for (int i = 0; i < 4; i++)
+		if (my_scids[i] && my_scids[i] == cid)
+			return 1;
+	return 0;
+}
+
 static void l2_handle_peer_sig(const unsigned char *f, int n)
 {
 	if (n < 4)
 		return;
 	int code = f[0], id = f[1];
 	if (code == 0x04 && n >= 8) {               /* Config Request */
-		/* отвечаем: scid = его dcid из запроса, успех, без опций */
+		unsigned short dcid = f[4] | (f[5] << 8);
+		if (!is_my_cid(dcid))
+			return;
 		unsigned char r[6] = { f[4], f[5], 0, 0, 0, 0 };
 		l2_sig(0x05, id, r, 6);
 	} else if (code == 0x06 && n >= 8) {        /* Disconnect Request */
+		unsigned short dcid = f[4] | (f[5] << 8);
+		if (!is_my_cid(dcid))
+			return;
 		unsigned char r[4] = { f[4], f[5], f[6], f[7] };
 		l2_sig(0x07, id, r, 4);
-	} else if (code == 0x0a && n >= 6) {        /* Information Request */
-		unsigned char r[4] = { f[4], f[5], 0x01, 0x00 }; /* not supported */
-		l2_sig(0x0b, id, r, 4);
-	} else if (code == 0x08) {                  /* Echo Request */
-		l2_sig(0x09, id, f + 4, n - 4);
 	}
 }
 
@@ -394,7 +407,8 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 				return 0;
 			}
 			conf_ok = 1;
-		} else if (code == 0x04 && n >= 8) {          /* его Config Request */
+		} else if (code == 0x04 && n >= 8 &&
+			   (f[4] | (f[5] << 8)) == scid) {     /* его Config Request к нам */
 			for (int i = 8; i + 1 < n;) {
 				int t = f[i] & 0x7f, l = f[i + 1];
 				if (t == 0x01 && l == 2 && i + 3 < n)
@@ -415,7 +429,9 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 /* ── AVDTP ─────────────────────────────────────────────────────────── */
 enum { DISCOVER = 1, GET_CAPS = 2, SET_CONF = 3, OPEN = 6, START = 7,
        CLOSE = 8, SUSPEND = 9 };
-static unsigned short sig_dcid = 0, sig_scid = 0x0040;
+/* Номера наших каналов — с 0x0070: ядро для своих (SDP-держатель)
+ * берёт 0x0040 и дальше, совпадение номеров устройство не прощает. */
+static unsigned short sig_dcid = 0, sig_scid = 0x0070;
 static unsigned char label = 0;
 
 static int avdtp_cmd(int signal, const unsigned char *pl, int n,
@@ -572,7 +588,7 @@ int main(int argc, char **argv)
 	 * же аутентификацию просим мы, контроллер при отсутствии ключа сам
 	 * запускает SSP-сопряжение, колонка в режиме сопряжения его
 	 * принимает, и ключ приходит нам (Link Key Notification). */
-	{
+	if (!getenv("BTA2DP_NOAUTH")) {
 		unsigned char h[2] = { handle & 0xff, handle >> 8 };
 		send_cmd(0x0411, h, 2);                  /* Authentication Requested */
 		double until = now_s() + 20;
@@ -591,6 +607,37 @@ int main(int argc, char **argv)
 		}
 		if (!done)
 			say("аутентификация не подтвердилась за 20 с — пробую канал всё равно");
+	}
+
+	/* Ядро завело у себя запись об этом ACL (по Command Status нашего
+	 * вызова) и, раз в ядре её никто не держит, через несколько секунд
+	 * само рвёт канал (Disconnect, код 0x16 «локальным хостом»). Даём
+	 * ему повод держать: открываем ЧЕРЕЗ ЯДРО безобидный L2CAP-канал к
+	 * SDP (PSM 1, без аутентификации) и не закрываем до конца работы.
+	 * Ядро при этом страничный вызов не делает — канал уже есть. */
+	{
+		int k = socket(AF_BLUETOOTH_, SOCK_SEQPACKET, 0 /* L2CAP */);
+		if (k >= 0) {
+			struct { unsigned short family, psm; unsigned char bd[6];
+				 unsigned short cid; } la;
+			memset(&la, 0, sizeof(la));
+			la.family = AF_BLUETOOTH_;
+			bind(k, (struct sockaddr *)&la, sizeof(la));
+			la.psm = 1;
+			memcpy(la.bd, dst, 6);
+			struct timeval sto = {15, 0};
+			setsockopt(k, SOL_SOCKET, SO_SNDTIMEO, &sto, sizeof(sto));
+			/* connect блокирует до 15 с; события сопряжения за это время
+			 * ядро не трогает (без mgmt молчит), а нам они и не нужны —
+			 * SDP идёт без аутентификации */
+			if (connect(k, (struct sockaddr *)&la, sizeof(la)) == 0)
+				say("ядро держит канал (SDP)");
+			else {
+				printf("SDP через ядро: %s — держателя нет%c",
+				       strerror(errno), 10);
+				close(k);
+			}
+		}
 	}
 
 	/* Режим «держать»: только ACL и ответы на сопряжение, без L2CAP —
@@ -706,7 +753,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	int mmtu;
-	unsigned short media_scid = 0x0041;
+	unsigned short media_scid = 0x0071;
 	unsigned short media_dcid = l2_open(AVDTP_PSM, media_scid, &mmtu);
 	if (!media_dcid) {
 		hangup();
