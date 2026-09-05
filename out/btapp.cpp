@@ -53,6 +53,13 @@ static std::string bt_addr;
 // одно фоновое дело за раз
 static pid_t job = 0;
 static int job_kind = 0;                 // 1 питание 2 поиск 3 прочее
+static time_t job_started = 0;
+/* Предел на задание. Поиск сам ограничен 15 с плюс до 6 с на имя
+ * каждого найденного; включение (btsetup с заливкой прошивки) — около
+ * минуты. Если за это время задание не вернулось — что-то застряло, и
+ * держать кнопку в состоянии «ищу…» вечно нельзя: прерываем всю группу
+ * процессов задания и говорим об этом. */
+static int job_limit(int kind) { return kind == 2 ? 45 : 180; }
 static const char *JOB_OUT = "/tmp/.btapp.out";
 // пока сообщение о результате свежее, опрос состояния его не затирает
 static time_t msg_until = 0;
@@ -113,6 +120,7 @@ static void start_job(const char *cmd, int kind)
     }
     job = p;
     job_kind = kind;
+    job_started = time(NULL);
 }
 
 // состояние контроллера
@@ -421,6 +429,19 @@ int main(void)
         select(xfd + 1, &fds, NULL, NULL, &tv);
         if (job && waitpid(job, NULL, WNOHANG) == job) {
             job_done();
+            draw();
+        } else if (job && time(NULL) - job_started > job_limit(job_kind)) {
+            // задание переработало — прерываем (setsid: группа = pid)
+            kill(-job, SIGKILL);
+            kill(job, SIGKILL);
+            waitpid(job, NULL, 0);
+            int kind = job_kind;
+            job = 0;
+            job_kind = 0;
+            st1 = kind == 2 ? "поиск не завершился — прерван"
+                            : "действие не завершилось — прервано";
+            st2 = "попробуйте ещё раз";
+            msg_until = time(NULL) + 8;
             draw();
         }
         if (time(NULL) - last >= 4) {
