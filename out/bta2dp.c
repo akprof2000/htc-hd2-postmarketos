@@ -95,14 +95,74 @@ static void send_cmd(unsigned short op, const unsigned char *pl, int n)
 		perror("write hci");
 }
 
+/* Ключи связи. Ядро без интерфейса mgmt их не хранит и на запрос ключа
+ * молчит, поэтому храним сами: колонка после первого сопряжения при
+ * каждом новом подключении спрашивает ключ, и на «ключа нет» рвёт
+ * канал с кодом 0x06. Файл: строки «адрес 32 hex-знака ключа». */
+#define KEYS_FILE "/root/.btkeys"
+
+static void mac_str(const unsigned char *raw, char *out)
+{
+	sprintf(out, "%02X:%02X:%02X:%02X:%02X:%02X", raw[5], raw[4], raw[3],
+		raw[2], raw[1], raw[0]);
+}
+
+static int key_load(const unsigned char *raw, unsigned char *key)
+{
+	char want[18];
+	mac_str(raw, want);
+	FILE *f = fopen(KEYS_FILE, "r");
+	if (!f)
+		return 0;
+	char m[32], hex[64];
+	int found = 0;
+	while (fscanf(f, "%31s %63s", m, hex) == 2) {
+		if (strcmp(m, want) || strlen(hex) != 32)
+			continue;
+		for (int i = 0; i < 16; i++) {
+			unsigned v;
+			sscanf(hex + i * 2, "%2x", &v);
+			key[i] = v;
+		}
+		found = 1;                          /* последний — главнее */
+	}
+	fclose(f);
+	return found;
+}
+
+static void key_save(const unsigned char *raw, const unsigned char *key)
+{
+	char m[18];
+	mac_str(raw, m);
+	FILE *f = fopen(KEYS_FILE, "a");
+	if (!f)
+		return;
+	fprintf(f, "%s ", m);
+	for (int i = 0; i < 16; i++)
+		fprintf(f, "%02x", key[i]);
+	fprintf(f, "%c", 10);
+	fclose(f);
+	printf("ключ связи с %s сохранён%c", m, 10);
+}
+
 /* ответы на запросы сопряжения — то же, что делает btagent */
 static void pairing_events(int code, const unsigned char *b, int n)
 {
 	unsigned char p[32];
-	(void)n;
 	switch (code) {
-	case 0x17:                                  /* Link Key Request */
-		send_cmd(0x040c, b, 6);             /* ключа нет */
+	case 0x17: {                                /* Link Key Request */
+		unsigned char key[16];
+		if (key_load(b, key)) {
+			memcpy(p, b, 6);
+			memcpy(p + 6, key, 16);
+			send_cmd(0x040b, p, 22);        /* вот наш ключ */
+		} else
+			send_cmd(0x040c, b, 6);         /* ключа нет — сопряжение */
+		break;
+	}
+	case 0x18:                                  /* Link Key Notification */
+		if (n >= 22)
+			key_save(b, b + 6);
 		break;
 	case 0x16:                                  /* PIN Code Request */
 		memcpy(p, b, 6);
@@ -291,9 +351,17 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 	l2_sig(0x02, myid, req, 4);                /* Connect Request */
 	unsigned short dcid = 0;
 	int conf_sent = 0, conf_ok = 0, peer_conf = 0;
-	double end = now_s() + 10;
+	/* 25 секунд: при первом подключении колонка сначала проводит
+	 * сопряжение (несколько секунд) и наш запрос канала может
+	 * потерять — повторяем его каждые 6 с, пока нет ответа */
+	double end = now_s() + 25, resend = now_s() + 6;
 	*out_mtu = 672;
 	while (now_s() < end && handle) {
+		if (!dcid && now_s() > resend) {
+			myid = sig_id++;
+			l2_sig(0x02, myid, req, 4);
+			resend = now_s() + 6;
+		}
 		unsigned char f[256];
 		int n = l2_recv(0x0001, f, sizeof(f), 500);
 		if (n < 4)

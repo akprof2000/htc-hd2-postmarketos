@@ -1,0 +1,39 @@
+#!/bin/sh
+# Свежий Bluetooth-чип: полный цикл питания и заливка заново.
+#
+# ЗАЧЕМ. ПРОВЕРЕНО 05.09: BCM4329 после отменённого или неудачного
+# страничного вызова перестаёт дозваниваться вовсе — ни HCI Reset, ни
+# down/up не помогают, только снятие питания. К колонке дозвон проходил
+# ровно тогда, когда чип только что подняли. Отсюда порядок: питание
+# снять на 15 секунд (меньше — не сбрасывается), поднять, присоединить,
+# залить заплатку, вернуть адрес и настройки.
+pkill hciattach 2>/dev/null
+pkill -x btagent 2>/dev/null
+rfkill block bluetooth
+sleep 15
+rfkill unblock bluetooth
+sleep 5
+hciattach -s 115200 /dev/ttyHS0 bcm43xx 115200 flow nosleep 7c:61:93:45:4b:89 >/tmp/btattach.log 2>&1 &
+i=0
+while [ $i -lt 25 ]; do
+    grep -q 'setup complete' /tmp/btattach.log 2>/dev/null && break
+    i=$((i + 1)); sleep 1
+done
+hciconfig hci0 up 2>/dev/null
+sleep 1
+/usr/local/bin/btpatch >/tmp/btpatch.log 2>&1
+hcitool -i hci0 cmd 0x3f 0x01 0x89 0x4b 0x45 0x93 0x61 0x7c >/dev/null 2>&1
+sleep 1
+hciconfig hci0 down 2>/dev/null
+hciconfig hci0 up 2>/dev/null
+sleep 1
+hcitool -i hci0 cmd 0x3f 0x27 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 >/dev/null 2>&1
+hciconfig hci0 name 'HTC HD2'
+hciconfig hci0 class 0x5a0204
+hciconfig hci0 piscan
+hcitool -i hci0 cmd 0x03 0x1e 0x00 0x08 0x00 0x01 >/dev/null 2>&1
+hcitool -i hci0 cmd 0x03 0x1c 0x00 0x08 0x00 0x01 >/dev/null 2>&1
+hcitool -i hci0 cmd 0x03 0x43 0x01 >/dev/null 2>&1
+hcitool -i hci0 cmd 0x03 0x47 0x01 >/dev/null 2>&1
+tail -1 /tmp/btpatch.log
+hciconfig hci0 | sed -n '3p'
