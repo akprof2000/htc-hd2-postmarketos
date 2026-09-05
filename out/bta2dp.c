@@ -85,6 +85,18 @@ static void say(const char *s)
 }
 
 /* ── HCI ───────────────────────────────────────────────────────────── */
+#include <sys/ioctl.h>
+#define HCISETRAW_ 0x400448dc                 /* _IOW('H', 220, int) */
+static int raw_on = 0;
+static void raw_mode(int on)
+{
+	struct { unsigned short dev_id; unsigned dev_opt; } dr = { 0, (unsigned)on };
+	if (ioctl(hci, HCISETRAW_, &dr) < 0)
+		printf("сырой режим %s: %s%c", on ? "вкл" : "выкл", strerror(errno), 10);
+	else
+		raw_on = on;
+}
+
 static void send_cmd(unsigned short op, const unsigned char *pl, int n)
 {
 	unsigned char pkt[300];
@@ -478,6 +490,8 @@ static void hangup(void)
 		send_cmd(0x0406, dc, 3);
 		usleep(300000);
 	}
+	if (raw_on)
+		raw_mode(0);
 	close(hci);
 }
 
@@ -508,6 +522,14 @@ int main(int argc, char **argv)
 		say("не удалось привязаться к hci0");
 		return 1;
 	}
+	/* СЫРОЙ РЕЖИМ (HCISETRAW). ПРОВЕРЕНО 05.09 на наушниках: без него
+	 * ядро, не зная наших L2CAP-каналов, отвечает устройству Command
+	 * Reject на его же Connect Response и Config Request — и устройство
+	 * закрывает только что открытый канал. В сыром режиме ядро только
+	 * раздаёт пакеты сокетам и само не обрабатывает ничего: ни L2CAP,
+	 * ни hci_conn с его таймером разрыва. Кредиты и сопряжение мы и так
+	 * ведём сами. На выходе режим снимаем. */
+	raw_mode(1);
 
 	/* 1. ACL-соединение в режиме R0 */
 	unsigned char cc[13];
@@ -559,13 +581,15 @@ int main(int argc, char **argv)
 			if (b[0]) {
 				printf("колонка не ответила на вызов (код 0x%02x)\n",
 				       b[0]);
-				close(hci);
+				if (raw_on) raw_mode(0);
+		close(hci);
 				return 1;
 			}
 			handle = b[1] | (b[2] << 8);
 		} else if (d[1] == 0x0f && r >= 7 && b[0]) {
 			printf("контроллер отверг вызов (код 0x%02x)\n", b[0]);
-			close(hci);
+			if (raw_on) raw_mode(0);
+		close(hci);
 			return 1;
 		} else
 			pairing_events(d[1], b, r - 3);
@@ -574,6 +598,7 @@ int main(int argc, char **argv)
 		say("колонка не ответила за 30 с — отменяю вызов");
 		send_cmd(0x0408, dst, 6);
 		usleep(500000);
+		if (raw_on) raw_mode(0);
 		close(hci);
 		return 1;
 	}
@@ -602,7 +627,8 @@ int main(int argc, char **argv)
 		}
 		if (!handle) {
 			say("колонка оборвала канал во время аутентификации");
-			close(hci);
+			if (raw_on) raw_mode(0);
+		close(hci);
 			return 1;
 		}
 		if (!done)
@@ -615,7 +641,7 @@ int main(int argc, char **argv)
 	 * ему повод держать: открываем ЧЕРЕЗ ЯДРО безобидный L2CAP-канал к
 	 * SDP (PSM 1, без аутентификации) и не закрываем до конца работы.
 	 * Ядро при этом страничный вызов не делает — канал уже есть. */
-	{
+	if (!raw_on) {
 		int k = socket(AF_BLUETOOTH_, SOCK_SEQPACKET, 0 /* L2CAP */);
 		if (k >= 0) {
 			struct { unsigned short family, psm; unsigned char bd[6];
