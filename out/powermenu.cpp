@@ -23,7 +23,10 @@ static const unsigned long BG = 0x101828;
 
 struct Item { const char *label; unsigned long color; const char *cmd; };
 static const Item ITEMS[] = {
-    {"Выключить", 0xa4262c, "poweroff"},
+    // poweroff сам по себе виснет (init не доходит до конца), поэтому
+    // выключаем через свой сценарий: он ждёт штатный путь 15 секунд, а
+    // потом гасит питание ядром напрямую через SysRq
+    {"Выключить", 0xa4262c, "/usr/local/bin/shutdown-phone"},
     // программный reboot ПРОВЕРЕН 01.09: виснет, чипсету нужен hardboot
     {"Экран выключить", 0x33415c,
      "sh -c 'echo 0 > /sys/class/leds/lcd-backlight/brightness'"},

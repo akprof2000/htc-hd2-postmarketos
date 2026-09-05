@@ -369,7 +369,11 @@ int main(void)
         // показывает сам.
         {
             static int hidden = 0;
-            int want_hide = (t == "Rockbox");
+            /* Шторка выезжает поверх всего экрана, и наша полоса
+             * оказывалась поверх её верхней части. Пока она открыта,
+             * прячемся — свои часы и заряд шторка рисует сама. */
+            int want_hide = (t == "Rockbox" ||
+                             access("/run/shade.open", F_OK) == 0);
             if (want_hide && !hidden) {
                 XUnmapWindow(dpy, win);
                 hidden = 1;

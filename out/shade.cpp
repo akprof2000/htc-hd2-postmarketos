@@ -310,10 +310,18 @@ static void draw_vol(void)
     XFlush(dpy);
 }
 
+/* Пока шторка открыта, оставляем метку: по ней строка состояния
+ * прячется, иначе она перекрывает верх шторки. Проверять через
+ * «активное окно» нельзя — шторка фокус не забирает. */
+static const char *OPEN_MARK = "/run/shade.open";
+
 static void show(void)
 {
     collect_notes();
     XMapRaised(dpy, win);
+    int f = open(OPEN_MARK, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (f >= 0)
+        close(f);
     shown = 1;
     hide_at = time(NULL) + 20;         // сама уедет через 20 с бездействия
     draw();
@@ -322,6 +330,7 @@ static void show(void)
 static void hide(void)
 {
     XUnmapWindow(dpy, win);
+    unlink(OPEN_MARK);
     shown = 0;
     XFlush(dpy);
 }

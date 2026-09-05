@@ -1,0 +1,42 @@
+#!/bin/sh
+# Выключение HTC HD2.
+#
+# Обычный poweroff здесь виснет: busybox передаёт дело init, а тот на
+# этом железе останавливается где-то в середине. Поэтому действуем в
+# три шага и на каждом ограничиваем ожидание:
+#
+#   1. просим по-хорошему остановить службы и записать всё на диск;
+#   2. пробуем штатный poweroff, но ждём его не дольше 15 секунд;
+#   3. если через 15 секунд мы всё ещё живы — выключаем ядром напрямую
+#      (SysRq: сначала «s» — сбросить буферы, потом «o» — питание off).
+#
+# Шаг 3 не тот же самый poweroff: он идёт мимо init и userspace, где всё
+# и застревает.
+
+# 1. по-хорошему
+/usr/local/bin/beep 2>/dev/null &
+sync
+for s in phoned keysd statusbar home shade rukbd; do
+    pkill -x "$s" 2>/dev/null
+done
+sleep 1
+sync
+
+# 2. штатный путь, с ограничением по времени
+( poweroff ) &
+i=0
+while [ $i -lt 15 ]; do
+    i=$((i + 1))
+    sleep 1
+done
+
+# 3. раз мы досюда дошли, штатный путь завис — выключаем ядром
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null
+sync
+echo s > /proc/sysrq-trigger 2>/dev/null
+sleep 2
+echo o > /proc/sysrq-trigger 2>/dev/null
+sleep 5
+
+# 4. и уж совсем на крайний случай
+halt -f 2>/dev/null
