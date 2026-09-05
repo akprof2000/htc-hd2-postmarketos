@@ -59,7 +59,7 @@ static time_t job_started = 0;
  * минуты. Если за это время задание не вернулось — что-то застряло, и
  * держать кнопку в состоянии «ищу…» вечно нельзя: прерываем всю группу
  * процессов задания и говорим об этом. */
-static int job_limit(int kind) { return kind == 2 ? 45 : 180; }
+static int job_limit(int kind) { return kind == 2 ? 70 : 180; }
 static const char *JOB_OUT = "/tmp/.btapp.out";
 // пока сообщение о результате свежее, опрос состояния его не затирает
 static time_t msg_until = 0;
@@ -179,7 +179,17 @@ static void parse_scan(const std::string &out)
             nm.erase(d, 6);
         while (!nm.empty() && (nm.front() == ' ' || nm.front() == '\t'))
             nm.erase(0, 1);
-        devs.push_back({nm.empty() ? "(без имени)" : nm, addr, rssi});
+        // одно устройство может встретиться дважды: сначала строка «ищу
+        // имя…» по ходу опроса, потом полная с именем — последняя главнее
+        int dup = -1;
+        for (size_t i = 0; i < devs.size(); i++)
+            if (devs[i].addr == addr)
+                dup = (int)i;
+        Dev d2 = {nm.empty() ? "(без имени)" : nm, addr, rssi};
+        if (dup >= 0)
+            devs[dup] = d2;
+        else
+            devs.push_back(d2);
     }
 }
 
@@ -236,7 +246,7 @@ static void draw(void)
     if (devs.empty()) {
         XSetForeground(dpy, gc, ROW);
         XFillRectangle(dpy, buf, gc, 10, LIST_Y, W - 20, 52);
-        const char *e = job && job_kind == 2 ? "идёт поиск, 15 секунд…"
+        const char *e = job && job_kind == 2 ? "идёт поиск, 25 секунд…"
                                              : "нажмите «Найти устройства»";
         text(f_dev, &c_fg, 24, LIST_Y + 32, e);
     }
@@ -297,7 +307,7 @@ static void click(int x, int y)
             return;
         }
         devs.clear();
-        start_job("/usr/local/bin/btscan 15", 2);
+        start_job("/usr/local/bin/btscan 25", 2);
         return;
     }
     int fitn = devs_fit();
@@ -429,6 +439,10 @@ int main(void)
         select(xfd + 1, &fds, NULL, NULL, &tv);
         if (job && waitpid(job, NULL, WNOHANG) == job) {
             job_done();
+            draw();
+        } else if (job && job_kind == 2) {
+            // находки показываем по ходу поиска
+            parse_scan(readf(JOB_OUT));
             draw();
         } else if (job && time(NULL) - job_started > job_limit(job_kind)) {
             // задание переработало — прерываем (setsid: группа = pid)

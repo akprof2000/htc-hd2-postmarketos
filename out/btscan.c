@@ -122,36 +122,82 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	/* Inquiry: LAP 9e8b33 (общий), длительность, без лимита ответов */
-	int dur = seconds / 1.28;
-	if (dur < 2) dur = 2;
-	if (dur > 30) dur = 30;
-	unsigned char inq[5] = {0x33, 0x8b, 0x9e, (unsigned char)dur, 0x00};
-	send_cmd(s, OGF_LINK_CTL, OCF_INQUIRY, inq, 5);
-
+	/* Опрос идёт НЕСКОЛЬКИМИ короткими проходами, а не одним длинным.
+	 * ПРОВЕРЕНО 05.09: четыре подряд одинаковых опроса по 15 с дали
+	 * «телевизор», «колонка и телевизор», «телевизор», «ничего» — радио
+	 * здесь ловит устройства с переменным успехом, и один проход легко
+	 * возвращает пустой список. Проходы объединяются (add_dev не даёт
+	 * дублей). Перед началом сбрасываем возможный висящий опрос, а у
+	 * каждой команды проверяем, что контроллер её принял: если он ещё
+	 * занят прошлым опросом, команда молча отвергается — и это тоже
+	 * выглядело как «ничего не найдено». */
+	send_cmd(s, OGF_LINK_CTL, 0x0002, NULL, 0);        /* Inquiry Cancel */
+	usleep(150000);
 	double t0 = now_s();
 	while (now_s() - t0 < seconds) {
-		unsigned char d[300];
-		int r = read(s, d, sizeof(d));
-		if (r < 3 || d[0] != 0x04)          /* только события */
-			continue;
-		int code = d[1];
-		unsigned char *body = d + 3;
-		int blen = r - 3;
-		if (code != EVT_INQUIRY_RESULT && code != EVT_INQUIRY_RESULT_RSSI &&
-		    code != EVT_EXTENDED_INQUIRY_RESULT)
-			continue;
-		int n = (code == EVT_EXTENDED_INQUIRY_RESULT) ? 1 : body[0];
-		int off = 1;
-		for (int i = 0; i < n; i++) {
-			if (off + 14 > blen)
-				break;
-			int rssi = -128;
-			if (code == EVT_INQUIRY_RESULT_RSSI ||
-			    code == EVT_EXTENDED_INQUIRY_RESULT)
-				rssi = (signed char)body[off + 13];
-			add_dev(body + off, rssi);
-			off += 14;
+		double left = seconds - (now_s() - t0);
+		int dur = (int)(left / 1.28);
+		if (dur < 2)
+			break;
+		if (dur > 6)
+			dur = 6;                     /* ~7,7 с на проход */
+		unsigned char inq[5] = {0x33, 0x8b, 0x9e, (unsigned char)dur, 0x00};
+		send_cmd(s, OGF_LINK_CTL, OCF_INQUIRY, inq, 5);
+		int accepted = -1, complete = 0;
+		double t1 = now_s();
+		while (now_s() - t1 < dur * 1.28 + 2 && !complete) {
+			unsigned char d[300];
+			int r = read(s, d, sizeof(d));
+			if (r < 3 || d[0] != 0x04)      /* только события */
+				continue;
+			int code = d[1];
+			unsigned char *body = d + 3;
+			int blen = r - 3;
+			if (code == 0x0f && blen >= 4) {     /* Command Status */
+				unsigned short op = body[2] | (body[3] << 8);
+				if (op == ((OGF_LINK_CTL << 10) | OCF_INQUIRY)) {
+					accepted = body[0];
+					if (accepted != 0)
+						break;       /* занят — сбросим и повторим */
+				}
+				continue;
+			}
+			if (code == 0x01) {              /* Inquiry Complete */
+				complete = 1;
+				continue;
+			}
+			if (code != EVT_INQUIRY_RESULT &&
+			    code != EVT_INQUIRY_RESULT_RSSI &&
+			    code != EVT_EXTENDED_INQUIRY_RESULT)
+				continue;
+			int n = (code == EVT_EXTENDED_INQUIRY_RESULT) ? 1 : body[0];
+			int off = 1;
+			for (int i = 0; i < n; i++) {
+				if (off + 14 > blen)
+					break;
+				int rssi = -128;
+				if (code == EVT_INQUIRY_RESULT_RSSI ||
+				    code == EVT_EXTENDED_INQUIRY_RESULT)
+					rssi = (signed char)body[off + 13];
+				int before = nfound;
+				int k = add_dev(body + off, rssi);
+				if (k >= 0 && rssi > found[k].rssi)
+					found[k].rssi = rssi;   /* лучший уровень */
+				/* новое — печатаем сразу, ещё без имени: приложение
+				 * читает наш вывод по ходу и показывает находки, не
+				 * дожидаясь конца опроса; полная строка с именем
+				 * придёт в конце и заменит эту */
+				if (k >= 0 && nfound > before) {
+					printf("%s  %d дБм  (ищу имя…)\n",
+					       found[k].mac, rssi);
+					fflush(stdout);
+				}
+				off += 14;
+			}
+		}
+		if (accepted != 0) {                 /* отвергнута или без ответа */
+			send_cmd(s, OGF_LINK_CTL, 0x0002, NULL, 0);
+			usleep(300000);
 		}
 	}
 
