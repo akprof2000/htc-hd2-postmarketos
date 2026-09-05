@@ -321,8 +321,10 @@ static void click(int x, int y)
         int bw = (W - 44) / 2;
         char cmd[512];
         if (x < 16 + bw) {
-            st1 = "сопрягаюсь с " + devs[i].addr + " (PIN 0000)…";
-            st2.clear();
+            // адрес — на вторую строку: в одну с PIN он не влезал и
+            // обрезался, терялась как раз подсказка про код
+            st1 = "сопрягаюсь, PIN 0000…";
+            st2 = devs[i].name + " · " + devs[i].addr;
             snprintf(cmd, sizeof(cmd), "/usr/local/bin/btpair %s 0000",
                      devs[i].addr.c_str());
             start_job(cmd, 3);
@@ -336,7 +338,8 @@ static void click(int x, int y)
                 st2.clear();
                 return;
             }
-            st1 = "отправляю " + pic + "…";
+            st1 = "отправляю снимок…";
+            st2 = pic.substr(pic.rfind('/') + 1);
             st2.clear();
             snprintf(cmd, sizeof(cmd), "/usr/local/bin/btsend %s '%s'",
                      devs[i].addr.c_str(), pic.c_str());
