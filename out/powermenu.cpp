@@ -23,10 +23,11 @@ static const unsigned long BG = 0x101828;
 
 struct Item { const char *label; unsigned long color; const char *cmd; };
 static const Item ITEMS[] = {
-    // poweroff сам по себе виснет (init не доходит до конца), поэтому
-    // выключаем через свой сценарий: он ждёт штатный путь 15 секунд, а
-    // потом гасит питание ядром напрямую через SysRq
-    {"Выключить", 0xa4262c, "/usr/local/bin/shutdown-phone"},
+    // Снять питание это ядро не умеет: все три пути (poweroff, SysRq,
+    // poweroff -f) проверены 05.09 и виснут в остановке драйверов.
+    // Поэтому — честный сон: экран гаснет, ядро засыпает, просыпается
+    // кнопкой питания. Подпись говорит ровно то, что происходит.
+    {"В сон", 0xa4262c, "/usr/local/bin/shutdown-phone"},
     // программный reboot ПРОВЕРЕН 01.09: виснет, чипсету нужен hardboot
     {"Экран выключить", 0x33415c,
      "sh -c 'echo 0 > /sys/class/leds/lcd-backlight/brightness'"},

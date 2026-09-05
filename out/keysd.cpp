@@ -269,6 +269,17 @@ static void volume_step(int delta)
 }
 
 // ── экран ────────────────────────────────────────────────────────────
+/* Пробуждение. Подсветку зажигаем и обязательно пишем «on» в
+ * /sys/power/state: кнопка «В сон» просит у ядра «mem», и ядро в этом
+ * (андроидовском) варианте держит просьбу, пока её не отменить —
+ * иначе телефон, только проснувшись, заснёт снова, как только
+ * отпустят wakelock-и. */
+static void wake_full(void)
+{
+    writef(BL, "180");
+    writef("/sys/power/state", "on");
+}
+
 static void screen_toggle(void)
 {
     std::string cur = readf(BL);
@@ -334,7 +345,7 @@ int main(void)
                     last_touch = now_s();      // кнопки — тоже активность
                     woke_by_press = 0;
                     if (dark) {                // и будят экран
-                        writef(BL, "180");
+                        wake_full();
                         if (tfd >= 0)
                             ioctl(tfd, EVIOCGRAB, 0);
                         dark = 0;
@@ -435,7 +446,7 @@ int main(void)
             last_touch = now_s();
             touched = 1;                       // для показа клавиатуры
             if (dark) {                        // просыпаемся
-                writef(BL, "180");
+                wake_full();
                 ioctl(tfd, EVIOCGRAB, 0);
                 dark = 0;
                 screen_off_by_us = 0;
@@ -453,7 +464,7 @@ int main(void)
             // Входящий вызов будит экран: иначе звонок слышно, а
             // ответить не по чему — сенсор перехвачен, экран погашен.
             if (dark && call_state() != "idle") {
-                writef(BL, "180");
+                wake_full();
                 ioctl(tfd, EVIOCGRAB, 0);
                 dark = 0;
                 screen_off_by_us = 0;
