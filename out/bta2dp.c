@@ -45,6 +45,18 @@ static int hci = -1;
 static unsigned char dst[6];
 static unsigned short handle = 0;
 static int acl_mtu = 1021, credits = 6;
+static int debug = 0;
+
+static void hexline(const char *what, const unsigned char *d, int n)
+{
+	if (!debug)
+		return;
+	printf("  %s:", what);
+	for (int i = 0; i < n && i < 40; i++)
+		printf(" %02x", d[i]);
+	printf("%s\n", n > 40 ? " …" : "");
+	fflush(stdout);
+}
 
 /* принятые L2CAP-кадры, по одному на канал (CID) */
 struct frame { unsigned short cid; int len; unsigned char data[2048]; };
@@ -137,6 +149,8 @@ static int pump(int timeout_ms)
 		int code = d[1];
 		const unsigned char *b = d + 3;
 		int n = r - 3;
+		if (code != 0x13)
+			hexline("событие", d + 1, r - 1);
 		if (code == 0x13 && n >= 5) {           /* Number of Completed */
 			int k = b[0];
 			for (int i = 0; i < k; i++)
@@ -171,6 +185,7 @@ static int pump(int timeout_ms)
 		asm_len += len;
 		if (asm_len >= asm_want && asm_want >= 4) {
 			unsigned short cid = asm_buf[2] | (asm_buf[3] << 8);
+			hexline("<- L2CAP", asm_buf, asm_want);
 			queue_frame(cid, asm_buf + 4, asm_want - 4);
 			asm_len = asm_want = 0;
 		}
@@ -204,6 +219,7 @@ static int l2_send(unsigned short cid, const unsigned char *d, int len)
 	pkt[7] = cid & 0xff;
 	pkt[8] = cid >> 8;
 	memcpy(pkt + 9, d, len);
+	hexline("-> L2CAP", pkt + 5, len + 4);
 	credits--;
 	if (write(hci, pkt, 9 + len) < 0) {
 		perror("write acl");
@@ -390,6 +406,7 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 6; i++)
 		dst[i] = (unsigned char)v[5 - i];
 	signal(SIGPIPE, SIG_IGN);
+	debug = getenv("BTA2DP_DEBUG") != NULL;
 
 	hci = socket(AF_BLUETOOTH_, SOCK_RAW, BTPROTO_HCI_);
 	if (hci < 0) {
@@ -411,7 +428,9 @@ int main(int argc, char **argv)
 	cc[6] = 0x18; cc[7] = 0xcc;                  /* DM1..DH5 */
 	cc[8] = 0x00;                                /* R0 — единственный, на который отвечает JBL */
 	cc[9] = 0; cc[10] = 0; cc[11] = 0;
-	cc[12] = 0x00;                               /* без смены роли */
+	cc[12] = 0x01;                               /* смену роли разрешаем: колонки
+	                                              * любят быть главными, а
+	                                              * без этого JBL молчала */
 	send_cmd(0x0405, cc, 13);
 	say("вызываю колонку (R0)…");
 	double end = now_s() + 30;
