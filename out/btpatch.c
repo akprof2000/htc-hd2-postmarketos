@@ -102,7 +102,7 @@ int main(int argc, char **argv)
 	usleep(50000);
 
 	/* 2. записи файла — обычные HCI-команды */
-	int total = 0, bad = 0;
+	int total = 0, bad = 0, miss = 0;
 	for (;;) {
 		unsigned char h[3];
 		if (fread(h, 1, 3, f) != 3)
@@ -114,13 +114,34 @@ int main(int argc, char **argv)
 			break;
 		}
 		unsigned short op = h[0] | (h[1] << 8);
-		int r = send_cmd(op, data, len);
+		/* Записи повторяем: ответ на этом чипе иногда теряется, а
+		 * пропущенная запись оставляет прошивку наполовину залитой —
+		 * тогда радио ведёт себя странно: вызвать может, а на чужой
+		 * поиск не отзывается. Между записями короткая пауза: без неё
+		 * чип захлёбывается примерно на середине файла. */
+		int r = -1;
+		for (int t = 0; t < 3 && r != 0; t++) {
+			if (t)
+				usleep(30000);
+			r = send_cmd(op, data, len);
+		}
+		usleep(2000);
 		total++;
 		if (r != 0) {
 			bad++;
+			miss++;
 			if (bad <= 3)
 				printf("запись %d (опкод 0x%04x): ответ %d\n",
 				       total, op, r);
+			/* Пять отказов подряд — чип уже не слушает; лить
+			 * дальше бессмысленно и вредно. */
+			if (miss >= 5) {
+				printf("чип перестал отвечать на записи %d — "
+				       "останавливаюсь\n", total);
+				break;
+			}
+		} else {
+			miss = 0;
 		}
 		if (total % 50 == 0) {
 			printf("залито записей: %d\n", total);
@@ -134,6 +155,25 @@ int main(int argc, char **argv)
 	usleep(50000);
 	st = send_cmd(0x0C03, NULL, 0);          /* HCI Reset */
 	printf("перезапуск контроллера: ответ %d\n", st);
+	usleep(200000);
+
+	/* 4. проверяем, что заплатка легла: у чистого ПЗУ ревизия 0x0000,
+	 * с заплаткой — ненулевая (у нас 0x02f0) */
+	unsigned char ver[4] = {0x01, 0x01, 0x10, 0x00};
+	if (write(hci, ver, 4) == 4) {
+		for (int t = 0; t < 20; t++) {
+			unsigned char d[300];
+			int r = read(hci, d, sizeof(d));
+			if (r < 14 || d[0] != 0x04 || d[1] != 0x0e)
+				continue;
+			if ((d[4] | (d[5] << 8)) != 0x1001)
+				continue;
+			unsigned rev = d[8] | (d[9] << 8);
+			printf("ревизия прошивки: 0x%04x %s\n", rev,
+			       rev ? "— заплатка на месте" : "— ЗАПЛАТКИ НЕТ");
+			break;
+		}
+	}
 	close(hci);
 	return bad ? 1 : 0;
 }
