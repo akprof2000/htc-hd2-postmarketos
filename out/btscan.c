@@ -111,6 +111,41 @@ static int add_dev(const unsigned char *addr, int rssi)
 	return nfound++;
 }
 
+/* Имена запоминаем: запрос имени на этом радио отвечает не всегда, и
+ * знакомая колонка то «JBL Clip 4», то «(без имени)». Файл — строки
+ * «адрес<TAB>имя». */
+#define NAMES_FILE "/root/.btnames"
+
+static void cached_name(const char *mac, char *out, int max)
+{
+	out[0] = 0;
+	FILE *f = fopen(NAMES_FILE, "r");
+	if (!f)
+		return;
+	char ln[300];
+	while (fgets(ln, sizeof(ln), f)) {
+		char m[18], nm[200];
+		if (sscanf(ln, "%17s	%199[^\n]", m, nm) == 2 && !strcmp(m, mac)) {
+			strncpy(out, nm, max - 1);
+			out[max - 1] = 0;
+		}
+	}
+	fclose(f);
+}
+
+static void remember_name(const char *mac, const char *name)
+{
+	char old[200];
+	cached_name(mac, old, sizeof(old));
+	if (!strcmp(old, name))
+		return;
+	FILE *f = fopen(NAMES_FILE, "a");
+	if (!f)
+		return;
+	fprintf(f, "%s	%s\n", mac, name);
+	fclose(f);
+}
+
 int main(int argc, char **argv)
 {
 	int seconds = argc > 1 ? atoi(argv[1]) : 12;
@@ -203,28 +238,35 @@ int main(int argc, char **argv)
 
 	/* имена спрашиваем ПОСЛЕ опроса */
 	for (int i = 0; i < nfound; i++) {
-		unsigned char pl[10];
-		memcpy(pl, found[i].raw, 6);
-		pl[6] = 0x02; pl[7] = 0x00; pl[8] = 0x00; pl[9] = 0x00;
-		send_cmd(s, OGF_LINK_CTL, OCF_REMOTE_NAME_REQ, pl, 10);
-		double t1 = now_s();
-		while (now_s() - t1 < 6) {
-			unsigned char d[300];
-			int r = read(s, d, sizeof(d));
-			if (r < 11 || d[0] != 0x04 ||
-			    d[1] != EVT_REMOTE_NAME_COMPLETE)
-				continue;
-			char m[18];
-			mac_str(d + 4, m);            /* d+3 — статус, дальше адрес */
-			if (strcmp(m, found[i].mac))
-				continue;
-			int len = r - 10;
-			if (len > (int)sizeof(found[i].name) - 1)
-				len = sizeof(found[i].name) - 1;
-			memcpy(found[i].name, d + 10, len);
-			found[i].name[len] = 0;
-			break;
-		}
+	    /* две попытки: на этом радио ответ на запрос имени приходит
+	     * через раз, и знакомая колонка то с именем, то без */
+	    for (int attempt = 0; attempt < 2 && !found[i].name[0]; attempt++) {
+			unsigned char pl[10];
+			memcpy(pl, found[i].raw, 6);
+			pl[6] = 0x02; pl[7] = 0x00; pl[8] = 0x00; pl[9] = 0x00;
+			send_cmd(s, OGF_LINK_CTL, OCF_REMOTE_NAME_REQ, pl, 10);
+			double t1 = now_s();
+			while (now_s() - t1 < 6) {
+				unsigned char d[300];
+				int r = read(s, d, sizeof(d));
+				if (r < 11 || d[0] != 0x04 ||
+				    d[1] != EVT_REMOTE_NAME_COMPLETE)
+					continue;
+				char m[18];
+				mac_str(d + 4, m);            /* d+3 — статус, дальше адрес */
+				if (strcmp(m, found[i].mac))
+					continue;
+				int len = r - 10;
+				if (len > (int)sizeof(found[i].name) - 1)
+					len = sizeof(found[i].name) - 1;
+				memcpy(found[i].name, d + 10, len);
+				found[i].name[len] = 0;
+				remember_name(found[i].mac, found[i].name);
+				break;
+			}
+	    }
+		if (!found[i].name[0])          /* не ответило — берём из памяти */
+			cached_name(found[i].mac, found[i].name, sizeof(found[i].name));
 	}
 	close(s);
 
