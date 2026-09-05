@@ -323,6 +323,10 @@ int main(void)
     double btn_off_at = 0, press_at[512] = {0};
     double last_touch = now_s(), last_kbd_check = 0;
     int dark = 0, hung_up = 0, kbd_want_last = -1, touched = 0;
+/* Когда экран погас. Первую секунду после этого касания и кнопки не
+ * будят: палец, нажавший «В сон», отпускается уже на тёмный экран, и
+ * без этой паузы телефон просыпался сразу же. */
+static double dark_at = 0;
     int screen_off_by_us = 0, woke_by_press = 0;
     double last_kbd_show = 0;
 
@@ -344,7 +348,7 @@ int main(void)
                 if (ev.value == 1) {           // нажатие
                     last_touch = now_s();      // кнопки — тоже активность
                     woke_by_press = 0;
-                    if (dark) {                // и будят экран
+                    if (dark && now_s() - dark_at > 1.0) { // и будят экран
                         wake_full();
                         if (tfd >= 0)
                             ioctl(tfd, EVIOCGRAB, 0);
@@ -431,7 +435,7 @@ int main(void)
                             screen_off_by_us = (readf(BL) == "0");
                             if (screen_off_by_us && tfd >= 0) {
                                 ioctl(tfd, EVIOCGRAB, 1);
-                                dark = 1;
+                                dark = 1; dark_at = now_s();
                             }
                         }
                     }
@@ -445,7 +449,7 @@ int main(void)
             if (read(tfd, &ev, sizeof(ev)) > 0) { }
             last_touch = now_s();
             touched = 1;                       // для показа клавиатуры
-            if (dark) {                        // просыпаемся
+            if (dark && now_s() - dark_at > 1.0) { // просыпаемся
                 wake_full();
                 ioctl(tfd, EVIOCGRAB, 0);
                 dark = 0;
@@ -474,7 +478,7 @@ int main(void)
                 call_state() == "idle") {
                 writef(BL, "0");
                 ioctl(tfd, EVIOCGRAB, 1);      // тап-пробуждение не нажимает
-                dark = 1;                      // ничего в интерфейсе
+                dark = 1; dark_at = now_s();                      // ничего в интерфейсе
                 screen_off_by_us = 1;
             }
             // Сенсор перехватываем ТОЛЬКО когда гасим экран сами: иначе
@@ -482,7 +486,7 @@ int main(void)
             // отзываться, хотя экран горел.
             if (!lit && !dark && screen_off_by_us) {
                 ioctl(tfd, EVIOCGRAB, 1);
-                dark = 1;
+                dark = 1; dark_at = now_s();
             }
             // Кнопка «В сон» гасит экран и просит у ядра «mem» сама, без
             // нас. Считаем такой экран погашенным нами: перехватываем
@@ -492,7 +496,7 @@ int main(void)
             // режимов, а не текущий, и читается «mem» всегда.
             if (!lit && !dark) {
                 ioctl(tfd, EVIOCGRAB, 1);
-                dark = 1;
+                dark = 1; dark_at = now_s();
                 screen_off_by_us = 1;
             }
         }
