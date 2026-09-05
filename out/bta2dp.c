@@ -173,7 +173,10 @@ static void pairing_events(int code, const unsigned char *b, int n)
 		break;
 	case 0x31:                                  /* IO Capability Request */
 		memcpy(p, b, 6);
-		p[6] = 0x03; p[7] = 0x00; p[8] = 0x00;  /* NoInputNoOutput */
+		/* NoInputNoOutput; требования — «общее сопряжение» (0x04),
+		 * как у телефонов: с «без запоминания» (0x00) колонка после
+		 * обмена IO Capability замолкала и ключа не выдавала */
+		p[6] = 0x03; p[7] = 0x00; p[8] = 0x04;
 		send_cmd(0x042b, p, 9);
 		break;
 	case 0x33:                                  /* User Confirmation */
@@ -405,7 +408,7 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 		if (dcid && conf_ok && peer_conf)
 			return dcid;
 	}
-	printf("PSM %d: канал не открылся за 10 с\n", psm);
+	printf("PSM %d: канал не открылся за 25 с\n", psm);
 	return 0;
 }
 
@@ -494,13 +497,38 @@ int main(int argc, char **argv)
 	unsigned char cc[13];
 	memcpy(cc, dst, 6);
 	cc[6] = 0x18; cc[7] = 0xcc;                  /* DM1..DH5 */
-	cc[8] = 0x00;                                /* R0 — единственный, на который отвечает JBL */
+	/* Режим страничного сканирования и смещение часов — из кэша поиска
+	 * (/run/btinq, пишет btscan), последняя запись главнее. Без них
+	 * наушники и колонка на вызов не отвечали. BTA2DP_PSRM перебивает
+	 * режим вручную. */
+	cc[8] = 0x00;
+	{
+		char want[18];
+		mac_str(dst, want);
+		FILE *cf = fopen("/run/btinq", "r");
+		if (cf) {
+			char m[32];
+			int psrm, co;
+			while (fscanf(cf, "%31s %d %d", m, &psrm, &co) == 3) {
+				if (strcmp(m, want))
+					continue;
+				cc[8] = (unsigned char)psrm;
+				cc[10] = co & 0xff;
+				cc[11] = ((co >> 8) & 0x7f) | 0x80;   /* смещение верно */
+			}
+			fclose(cf);
+		}
+		if (getenv("BTA2DP_PSRM"))
+			cc[8] = (unsigned char)atoi(getenv("BTA2DP_PSRM"));
+	}
 	cc[9] = 0; cc[10] = 0; cc[11] = 0;
 	cc[12] = 0x01;                               /* смену роли разрешаем: колонки
 	                                              * любят быть главными, а
 	                                              * без этого JBL молчала */
 	send_cmd(0x0405, cc, 13);
-	say("вызываю колонку (R0)…");
+	printf("вызываю устройство (R%d, смещение часов %s)…%c", cc[8],
+	       cc[11] & 0x80 ? "известно" : "неизвестно", 10);
+	fflush(stdout);
 	double end = now_s() + 30;
 	while (now_s() < end && !handle) {
 		unsigned char d[300];
@@ -536,6 +564,45 @@ int main(int argc, char **argv)
 	printf("ACL-канал установлен, ручка %d\n", handle);
 	fflush(stdout);
 	usleep(300000);
+
+	/* Аутентификацию начинаем САМИ, до L2CAP. Иначе её начинает колонка:
+	 * спрашивает ключ связи, и если ключа нет (первое сопряжение не
+	 * досидели или его сделал старый код без хранилища), рвёт канал с
+	 * кодом 0x06 — сопряжение заново она при этом не предлагает. Когда
+	 * же аутентификацию просим мы, контроллер при отсутствии ключа сам
+	 * запускает SSP-сопряжение, колонка в режиме сопряжения его
+	 * принимает, и ключ приходит нам (Link Key Notification). */
+	{
+		unsigned char h[2] = { handle & 0xff, handle >> 8 };
+		send_cmd(0x0411, h, 2);                  /* Authentication Requested */
+		double until = now_s() + 20;
+		int done = 0;
+		while (now_s() < until && handle && !done) {
+			int ev = pump(500);
+			if (ev == 0x06) {                    /* Authentication Complete */
+				say("аутентификация завершена");
+				done = 1;
+			}
+		}
+		if (!handle) {
+			say("колонка оборвала канал во время аутентификации");
+			close(hci);
+			return 1;
+		}
+		if (!done)
+			say("аутентификация не подтвердилась за 20 с — пробую канал всё равно");
+	}
+
+	/* Режим «держать»: только ACL и ответы на сопряжение, без L2CAP —
+	 * для проверки, подхватит ли ядро готовый канал своим L2CAP. */
+	if (getenv("BTA2DP_HOLD")) {
+		say("держу канал 60 с");
+		double hold = now_s() + 60;
+		while (now_s() < hold && handle)
+			pump(500);
+		hangup();
+		return 0;
+	}
 
 	/* 2. канал сигнализации */
 	int mtu_sig;

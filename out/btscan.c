@@ -216,6 +216,23 @@ int main(int argc, char **argv)
 					rssi = (signed char)body[off + 13];
 				int before = nfound;
 				int k = add_dev(body + off, rssi);
+				/* Режим страничного сканирования и смещение часов из
+				 * ответа — в кэш /run/btinq: с ними вызов попадает в
+				 * нужную фазу сразу, без них наушники и колонка на
+				 * вызов не отвечали. Раскладка: адрес 6, режим 1, затем
+				 * у обычного ответа 2 резервных байта и класс, у ответа
+				 * с RSSI — 1 резервный и класс; смещение — 2 байта. */
+				if (k >= 0) {
+					int psrm = body[off + 6];
+					int co = (code == EVT_INQUIRY_RESULT)
+						 ? (body[off + 12] | (body[off + 13] << 8))
+						 : (body[off + 11] | (body[off + 12] << 8));
+					FILE *cf = fopen("/run/btinq", "a");
+					if (cf) {
+						fprintf(cf, "%s %d %d%c", found[k].mac, psrm, co, 10);
+						fclose(cf);
+					}
+				}
 				if (k >= 0 && rssi > found[k].rssi)
 					found[k].rssi = rssi;   /* лучший уровень */
 				/* новое — печатаем сразу, ещё без имени: приложение
