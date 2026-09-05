@@ -30,4 +30,18 @@ hcitool -i hci0 cmd 0x3f 0x27 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00     0x00 0
 hciconfig hci0 name 'HTC HD2'
 hciconfig hci0 class 0x5a0204
 hciconfig hci0 piscan
+
+# Насколько охотно телефон отзывается на чужой поиск и вызов. По
+# умолчанию он слушает 11 мс каждые 2,56 с — 0,4% времени, и снаружи
+# его почти не поймать: ноутбук его так и не находил. Расширяем окно
+# (интервал 1,28 с, окно 160 мс) и включаем чередующееся сканирование,
+# после чего телефон находится сразу.
+hcitool -i hci0 cmd 0x03 0x1e 0x00 0x08 0x00 0x01 >/dev/null 2>&1  # окно поиска
+hcitool -i hci0 cmd 0x03 0x1c 0x00 0x08 0x00 0x01 >/dev/null 2>&1  # окно вызова
+hcitool -i hci0 cmd 0x03 0x43 0x01 >/dev/null 2>&1                 # поиск вперемежку
+hcitool -i hci0 cmd 0x03 0x47 0x01 >/dev/null 2>&1                 # вызов вперемежку
+
+# Отвечать на входящее сопряжение некому, если агент не запущен
+pgrep -x btagent >/dev/null 2>&1 ||     setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &
+
 hciconfig hci0 | head -3
