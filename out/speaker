@@ -1,0 +1,60 @@
+#!/bin/sh
+# Звук плеера на Bluetooth-колонку.
+#
+#     speaker on [MAC]    — включить: bta2dp читает PCM из канала
+#                           /run/a2dp.pcm, Rockbox пишет туда (см.
+#                           правку pcm-sdl.c); адрес по умолчанию —
+#                           последний из /root/.btkeys
+#     speaker off         — выключить, звук обратно в динамик
+#     speaker status
+#
+# Порядок при включении важен: bta2dp должен открыть канал на чтение
+# раньше, чем Rockbox откроет его на запись, иначе оба ждут друг друга.
+# bta2dp сам дозванивается до колонки; если она спит — ему нужен
+# режим сопряжения на колонке или просто её включение.
+SINK=/run/a2dp.sink
+FIFO=/run/a2dp.pcm
+LOG=/tmp/a2dp-speaker.log
+
+case "$1" in
+on)
+    MAC="$2"
+    [ -z "$MAC" ] && MAC=$(tail -1 /root/.btkeys 2>/dev/null | cut -d' ' -f1)
+    [ -z "$MAC" ] && { echo "нет адреса колонки (нет ключей в /root/.btkeys)"; exit 1; }
+    [ -p "$FIFO" ] || mkfifo "$FIFO"
+    echo "$MAC" > "$SINK"
+    pkill -x btagent 2>/dev/null
+    pkill -x bta2dp 2>/dev/null
+    # читатель канала; работает, пока Rockbox пишет; по концу потока
+    # (Rockbox закрыл канал) — запускается снова
+    setsid sh -c "while [ -f $SINK ]; do
+        BTA2DP_ALTADDR=1 BTA2DP_NOAUTH=1 /usr/local/bin/bta2dp $MAC - < $FIFO
+        sleep 2
+    done; setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &" </dev/null >"$LOG" 2>&1 &
+    # плеер перезапускаем, чтобы взял новый выход
+    pkill -x rockbox 2>/dev/null
+    i=0; while pgrep -x rockbox >/dev/null && [ $i -lt 40 ]; do i=$((i+1)); sleep 0.5; done
+    DISPLAY=:0 /usr/local/bin/rockbox-app >/dev/null 2>&1 &
+    echo "колонка $MAC: включена, плеер перезапущен"
+    ;;
+off)
+    rm -f "$SINK"
+    pkill -x bta2dp 2>/dev/null
+    pkill -x rockbox 2>/dev/null
+    i=0; while pgrep -x rockbox >/dev/null && [ $i -lt 40 ]; do i=$((i+1)); sleep 0.5; done
+    pgrep -x btagent >/dev/null || setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &
+    DISPLAY=:0 /usr/local/bin/rockbox-app >/dev/null 2>&1 &
+    echo "колонка выключена, звук в динамик"
+    ;;
+status)
+    if [ -f "$SINK" ]; then
+        echo "колонка $(cat $SINK): включена; bta2dp $(pgrep -x bta2dp >/dev/null && echo работает || echo 'ждёт плеер')"
+        tail -3 "$LOG" 2>/dev/null
+    else
+        echo "звук в динамик"
+    fi
+    ;;
+*)
+    echo "speaker on [MAC] | off | status"
+    ;;
+esac
