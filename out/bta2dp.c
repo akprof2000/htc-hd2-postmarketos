@@ -490,6 +490,16 @@ static void hangup(void)
 		send_cmd(0x0406, dc, 3);
 		usleep(300000);
 	}
+	if (getenv("BTA2DP_ALTADDR")) {
+		unsigned char addr[6] = { 0x89, 0x4b, 0x45, 0x93, 0x61, 0x7c };
+		send_cmd(0xfc01, addr, 6);
+		usleep(200000);
+		send_cmd(0x0c03, NULL, 0);
+		usleep(500000);
+		unsigned char se[1] = { 0x03 };
+		send_cmd(0x0c1a, se, 1);
+		usleep(100000);
+	}
 	if (raw_on)
 		raw_mode(0);
 	close(hci);
@@ -530,6 +540,23 @@ int main(int argc, char **argv)
 	 * ни hci_conn с его таймером разрыва. Кредиты и сопряжение мы и так
 	 * ведём сами. На выходе режим снимаем. */
 	raw_mode(1);
+
+	/* Другой адрес на время сеанса (BTA2DP_ALTADDR). Колонка помнит
+	 * ключ от старого сопряжения, которого у нас нет, и на «ключа нет»
+	 * рвёт канал даже в режиме сопряжения. С новым адресом мы для неё
+	 * новое устройство — сопряжение идёт заново, ключ сохраняем. Адрес
+	 * пишется командой Broadcom 0xFC01 и вступает после HCI Reset. */
+	if (getenv("BTA2DP_ALTADDR")) {
+		unsigned char addr[6] = { 0x8a, 0x4b, 0x45, 0x93, 0x61, 0x7c };
+		send_cmd(0xfc01, addr, 6);
+		usleep(200000);
+		send_cmd(0x0c03, NULL, 0);                /* HCI Reset */
+		usleep(500000);
+		unsigned char se[1] = { 0x03 };
+		send_cmd(0x0c1a, se, 1);                  /* scan enable */
+		usleep(100000);
+		say("представляюсь адресом 7C:61:93:45:4B:8A");
+	}
 
 	/* 1. ACL-соединение в режиме R0 */
 	unsigned char cc[13];
