@@ -1,0 +1,23 @@
+#!/bin/sh
+# Сторож: поиск (даёт режим и смещение часов) → вызов; если поиск пуст —
+# вызов вслепую в R1. Неудача → свежий чип (после неудачного вызова
+# контроллер глохнет).
+TB=00:13:8A:52:84:82
+pkill -x btagent
+for i in $(seq 1 40); do
+    echo "=== попытка $i, $(date +%T)"
+    rm -f /run/btinq
+    /usr/local/bin/btscan 10 > /tmp/scan.txt 2>/dev/null
+    if grep -q "$TB" /tmp/scan.txt; then
+        echo "--- наушники в эфире: $(grep "$TB" /tmp/scan.txt | tail -1)"
+        BTA2DP_NOAUTH=1 BTA2DP_DEBUG=1 timeout 130 /usr/local/bin/bta2dp "$TB" 2>&1 | grep -v "^  событие: 0f\|^  событие: 13\|^  событие: 07\|^  событие: 0e"
+    else
+        echo "--- в эфире нет, зову вслепую (R1)"
+        BTA2DP_PSRM=1 BTA2DP_NOAUTH=1 BTA2DP_DEBUG=1 timeout 130 /usr/local/bin/bta2dp "$TB" 2>&1 | grep -v "^  событие: 0f\|^  событие: 13\|^  событие: 07\|^  событие: 0e"
+    fi
+    grep -q "разведка закончена" /tmp/a2dp.txt && { echo "=== РАЗВЕДКА ПРОШЛА $(date +%T)"; break; }
+    timeout 200 /usr/local/bin/bt-fresh >/dev/null 2>&1
+    pkill -x btagent
+done
+setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &
+echo "сторож закончил $(date +%T)"

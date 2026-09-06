@@ -1,0 +1,6 @@
+#!/bin/sh
+# останавливает сторожа и его bta2dp; вызывать из файла, чтобы шаблон не совпал с самим вызовом
+pkill -f a2dpwatch.sh
+pkill -x bta2dp
+pkill -x btscan
+exit 0
