@@ -23,6 +23,7 @@
  * Сборка: gcc -O2 bta2dp.c -lsbc -o bta2dp
  */
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <sbc/sbc.h>
 #include <signal.h>
@@ -483,6 +484,18 @@ static int avdtp_cmd(int signal, const unsigned char *pl, int n,
 	return -1;
 }
 
+static void hangup(void);
+/* SIGTERM/SIGINT: speaker off и сторожа убивают нас сигналом; без
+ * разрыва ACL колонка остаётся «подключённой» к мёртвому процессу, и
+ * следующий вызов контроллер отвергает с 0x0b («канал уже есть»). */
+static void on_signal(int sig)
+{
+	(void)sig;
+	say("сигнал — разрываю и выхожу");
+	hangup();
+	_exit(0);
+}
+
 static void hangup(void)
 {
 	if (handle) {
@@ -517,6 +530,8 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 6; i++)
 		dst[i] = (unsigned char)v[5 - i];
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGTERM, on_signal);
+	signal(SIGINT, on_signal);
 	debug = getenv("BTA2DP_DEBUG") != NULL;
 
 	hci = socket(AF_BLUETOOTH_, SOCK_RAW, BTPROTO_HCI_);
@@ -590,6 +605,7 @@ int main(int argc, char **argv)
 	cc[12] = 0x01;                               /* смену роли разрешаем: колонки
 	                                              * любят быть главными, а
 	                                              * без этого JBL молчала */
+	int retried = 0;
 	send_cmd(0x0405, cc, 13);
 	printf("вызываю устройство (R%d, смещение часов %s)…%c", cc[8],
 	       cc[11] & 0x80 ? "известно" : "неизвестно", 10);
@@ -614,9 +630,22 @@ int main(int argc, char **argv)
 			}
 			handle = b[1] | (b[2] << 8);
 		} else if (d[1] == 0x0f && r >= 7 && b[0]) {
+			if (b[0] == 0x0b && !retried) {
+				/* «канал уже есть» — остался от убитого процесса;
+				 * рвём возможные ручки и зовём ещё раз */
+				say("канал уже есть — рву старый и зову снова");
+				for (int h = 0x0b; h <= 0x0e; h++) {
+					unsigned char dc[3] = { (unsigned char)h, 0, 0x13 };
+					send_cmd(0x0406, dc, 3);
+					usleep(150000);
+				}
+				retried = 1;
+				send_cmd(0x0405, cc, 13);
+				continue;
+			}
 			printf("контроллер отверг вызов (код 0x%02x)\n", b[0]);
 			if (raw_on) raw_mode(0);
-		close(hci);
+			close(hci);
 			return 1;
 		} else
 			pairing_events(d[1], b, r - 3);
@@ -845,7 +874,20 @@ int main(int argc, char **argv)
 	FILE *in;
 	if (!strcmp(argv[2], "-"))
 		in = stdin;
-	else {
+	else if (!strncmp(argv[2], "/run/", 5) || strstr(argv[2], ".pcm")) {
+		/* Именованный канал от плеера. Открываем на ЧТЕНИЕ-ЗАПИСЬ: так
+		 * open не ждёт писателя, а чтение никогда не упирается в конец
+		 * потока, когда плеер молчит (пауза, смена дорожки) — иначе
+		 * bta2dp завершался бы на каждой паузе и рвал соединение. */
+		int fd = open(argv[2], O_RDWR);
+		if (fd < 0) {
+			printf("нет канала %s%c", argv[2], 10);
+			hangup();
+			return 1;
+		}
+		in = fdopen(fd, "rb");
+		printf("читаю канал %s (PCM 44100/стерео/16)%c", argv[2], 10);
+	} else {
 		in = fopen(argv[2], "rb");
 		if (!in) {
 			printf("нет файла %s\n", argv[2]);
@@ -876,9 +918,16 @@ int main(int argc, char **argv)
 	unsigned long frames = 0;
 	double t0 = now_s();
 	for (;;) {
+		double before = now_s();
 		size_t got = fread(pcm, 1, codesize * fpp, in);
 		if (got < codesize)
 			break;
+		/* Плеер молчал (пауза, смена дорожки) — начинаем отсчёт заново,
+		 * иначе накопленное «опоздание» выплюнется одним залпом. */
+		if (now_s() - before > 0.5) {
+			t0 = now_s();
+			frames = 0;
+		}
 		int nf = got / codesize;
 		pkt[0] = 0x80; pkt[1] = 0x60;
 		pkt[2] = seq >> 8; pkt[3] = seq & 0xff;

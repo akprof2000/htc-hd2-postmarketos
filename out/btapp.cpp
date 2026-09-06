@@ -32,7 +32,9 @@ static const unsigned long BG = 0x101828, KEY = 0x22314a, ACC = 0x1f7a33,
 static const int HEAD_Y = 40, ST_Y = 66, ST_Y2 = 88;
 static const int TILE_Y = 104, TILE_H = 64;
 static const int SCAN_Y = 176, SCAN_H = 64;
-static const int LBL_Y = 262, LIST_Y = 276, DEV_H = 104, DEV_GAP = 6;
+/* ряд «Колонка»: звук плеера на Bluetooth-колонку (speaker on/off) */
+static const int SPK_Y = 248, SPK_H = 52;
+static const int LBL_Y = 324, LIST_Y = 338, DEV_H = 104, DEV_GAP = 6;
 static const int JOB_OUT_MAX = 16384;
 
 static Display *dpy;
@@ -242,6 +244,15 @@ static void draw(void)
     const char *sc = scanning ? "ищу…" : "Найти устройства";
     text(f_tile, &c_fg, (W - tw(f_tile, sc)) / 2, SCAN_Y + 40, sc);
 
+    // Колонка: включена — если есть /run/a2dp.sink (его ставит speaker on)
+    {
+        int spk_on = access("/run/a2dp.sink", F_OK) == 0;
+        XSetForeground(dpy, gc, spk_on ? ACC : KEY);
+        XFillRectangle(dpy, buf, gc, 10, SPK_Y, W - 20, SPK_H);
+        const char *st = spk_on ? "Колонка: звук плеера идёт на неё"
+                                : "Колонка: включить звук плеера";
+        text(f_small, &c_fg, (W - tw(f_small, st)) / 2, SPK_Y + 33, st);
+    }
     text(f_small, &c_dim, 14, LBL_Y, "Найденные устройства");
     if (devs.empty()) {
         XSetForeground(dpy, gc, ROW);
@@ -295,6 +306,17 @@ static void click(int x, int y)
                      bt_vis ? "noscan" : "piscan");
             start_job(cmd, 3);
         }
+        return;
+    }
+    if (y >= SPK_Y && y < SPK_Y + SPK_H) {
+        buzz();
+        if (job)
+            return;
+        int spk_on = access("/run/a2dp.sink", F_OK) == 0;
+        st1 = spk_on ? "выключаю колонку…" : "включаю колонку, плеер перезапустится…";
+        st2 = spk_on ? "" : "колонка должна быть включена";
+        start_job(spk_on ? "/usr/local/bin/speaker off"
+                         : "/usr/local/bin/speaker on", 3);
         return;
     }
     if (y >= SCAN_Y && y < SCAN_Y + SCAN_H) {
@@ -368,6 +390,11 @@ static void job_done(void)
             st1 = "сопряжено";
         else if (out.find("ПЕРЕДАН") != std::string::npos)
             st1 = "файл передан!";
+        else if (out.find("колонка") != std::string::npos &&
+                 out.find("включена") != std::string::npos)
+            st1 = "колонка включена — играйте в плеере";
+        else if (out.find("колонка выключена") != std::string::npos)
+            st1 = "звук снова в динамике";
         else
             st1 = "не получилось — устройство не ответило";
         st2.clear();

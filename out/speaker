@@ -8,8 +8,8 @@
 #     speaker off         — выключить, звук обратно в динамик
 #     speaker status
 #
-# Порядок при включении важен: bta2dp должен открыть канал на чтение
-# раньше, чем Rockbox откроет его на запись, иначе оба ждут друг друга.
+# bta2dp открывает канал сам, на чтение-запись, поэтому порядок запуска
+# не важен и паузы плеера не рвут соединение.
 # bta2dp сам дозванивается до колонки; если она спит — ему нужен
 # режим сопряжения на колонке или просто её включение.
 SINK=/run/a2dp.sink
@@ -28,7 +28,7 @@ on)
     # читатель канала; работает, пока Rockbox пишет; по концу потока
     # (Rockbox закрыл канал) — запускается снова
     setsid sh -c "while [ -f $SINK ]; do
-        BTA2DP_ALTADDR=1 BTA2DP_NOAUTH=1 /usr/local/bin/bta2dp $MAC - < $FIFO
+        BTA2DP_PSRM=0 BTA2DP_ALTADDR=1 BTA2DP_NOAUTH=1 /usr/local/bin/bta2dp $MAC $FIFO
         sleep 2
     done; setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &" </dev/null >"$LOG" 2>&1 &
     # плеер перезапускаем, чтобы взял новый выход
