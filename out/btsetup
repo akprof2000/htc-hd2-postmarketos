@@ -19,7 +19,13 @@ done
 # прошивки меняется с 0x0 на 0x2f0 и поиск сразу находит устройства.
 hciconfig hci0 up 2>/dev/null
 sleep 1
-/usr/local/bin/btpatch >/tmp/btpatch.log 2>&1
+# Если заплатка уже легла (hciattach нашёл файл и залил сам) — не
+# трогаем: повторная заливка прошитого чипа вешает его намертво.
+if hcitool -i hci0 cmd 0x04 0x0001 2>/dev/null | tail -1 | awk '{print $7$6}' | grep -qi "02f0"; then
+    echo "ревизия прошивки: 0x02f0 — уже прошит, заливку пропускаю" > /tmp/btpatch.log
+else
+    /usr/local/bin/btpatch >/tmp/btpatch.log 2>&1
+fi
 # заливка сбрасывает адрес в мусорный — возвращаем свой (0xFC01)
 hcitool -i hci0 cmd 0x3f 0x01 0x89 0x4b 0x45 0x93 0x61 0x7c >/dev/null 2>&1
 sleep 1
