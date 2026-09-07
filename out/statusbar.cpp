@@ -448,8 +448,32 @@ int main(void)
             alarm_set = capture("crontab -l 2>/dev/null")
                             .find("icemobile-alarm") != std::string::npos;
         }
-        XRaiseWindow(dpy, win);        // окна WM иначе накрывают полоску
-        draw();
+        /* Раньше цикл в каждом обороте поднимал окно и перерисовывал
+         * полоску. Поднятие само порождает событие, оно тут же будило
+         * select — петля крутилась на полной скорости и съедала треть
+         * процессора, а Xorg — ещё столько же; телефон захлёбывался, и
+         * плеер переставал отвечать на кнопки. Теперь рисуем только
+         * когда что-то изменилось, а поднимаем — когда сменилось
+         * активное окно или раз в пять секунд. */
+        std::string sig = title + "|" +
+            readf("/run/phone/csq") + "|" + readf("/run/phone/net") + "|" +
+            readf("/sys/class/power_supply/battery/capacity") + "|" +
+            readf("/sys/class/power_supply/battery/status") + "|" +
+            readf("/run/phone/missed") + "|" +
+            readf("/sys/class/leds/flashlight/brightness") + "|" +
+            (wifi_up ? "w" : "-") + (alarm_set ? "a" : "-");
+        static std::string last_sig;
+        static Window last_active = 0;
+        static time_t last_raise = 0;
+        if (a != last_active || now - last_raise >= 5) {
+            last_active = a;
+            last_raise = now;
+            XRaiseWindow(dpy, win);    // окна WM иначе накрывают полоску
+        }
+        if (sig != last_sig) {
+            last_sig = sig;
+            draw();
+        }
     }
     return 0;
 }
