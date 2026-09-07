@@ -15,6 +15,7 @@
 SINK=/run/a2dp.sink
 FIFO=/run/a2dp.pcm
 LOG=/tmp/a2dp-speaker.log
+LOOP=/run/a2dp.loop
 
 case "$1" in
 on)
@@ -23,14 +24,26 @@ on)
     [ -z "$MAC" ] && { echo "нет адреса колонки (нет ключей в /root/.btkeys)"; exit 1; }
     [ -p "$FIFO" ] || mkfifo "$FIFO"
     echo "$MAC" > "$SINK"
+    # прежний цикл и его bta2dp — адресно, по pid из файла: обычный
+    # pkill оставлял старый цикл в живых (он успевал увидеть новый
+    # файл-переключатель), и два bta2dp дрались за колонку
+    [ -f "$LOOP" ] && kill "$(cat "$LOOP")" 2>/dev/null
     pkill -x btagent 2>/dev/null
     pkill -x bta2dp 2>/dev/null
-    # читатель канала; работает, пока Rockbox пишет; по концу потока
-    # (Rockbox закрыл канал) — запускается снова
-    setsid sh -c "while [ -f $SINK ]; do
-        BTA2DP_PSRM=0 BTA2DP_ALTADDR=1 BTA2DP_NOAUTH=1 /usr/local/bin/bta2dp $MAC $FIFO
-        sleep 2
-    done; setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &" </dev/null >"$LOG" 2>&1 &
+    sleep 1
+    # Держатель канала: открывает его на чтение-запись и просто живёт.
+    # Без него в промежутке между попытками bta2dp у канала не остаётся
+    # читателя, и плеер умирает от SIGPIPE на первой же записи —
+    # именно так он и пропадал.
+    setsid sh -c "exec 3<>$FIFO; while [ -f $SINK ]; do sleep 5; done"         </dev/null >/dev/null 2>&1 &
+    # читатель канала; работает, пока файл-переключатель указывает на
+    # этот же цикл; по концу потока запускается снова
+    setsid sh -c "echo \$\$ > $LOOP
+        while [ -f $SINK ] && [ \"\$(cat $LOOP 2>/dev/null)\" = \"\$\$\" ]; do
+            BTA2DP_PSRM=0 BTA2DP_ALTADDR=1 BTA2DP_NOAUTH=1 /usr/local/bin/bta2dp $MAC $FIFO
+            sleep 2
+        done
+        setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &" </dev/null >"$LOG" 2>&1 &
     # плеер перезапускаем, чтобы взял новый выход
     pkill -x rockbox 2>/dev/null
     i=0; while pgrep -x rockbox >/dev/null && [ $i -lt 40 ]; do i=$((i+1)); sleep 0.5; done
@@ -39,6 +52,7 @@ on)
     ;;
 off)
     rm -f "$SINK"
+    [ -f "$LOOP" ] && kill "$(cat "$LOOP")" 2>/dev/null; rm -f "$LOOP"
     pkill -x bta2dp 2>/dev/null
     pkill -x rockbox 2>/dev/null
     i=0; while pgrep -x rockbox >/dev/null && [ $i -lt 40 ]; do i=$((i+1)); sleep 0.5; done

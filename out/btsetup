@@ -26,6 +26,19 @@ if hcitool -i hci0 cmd 0x04 0x0001 2>/dev/null | tail -1 | awk '{print $7$6}' | 
 else
     /usr/local/bin/btpatch >/tmp/btpatch.log 2>&1
 fi
+# Порт до чипа поднимаем на 921600. На 115200 через него пролезало
+# всего ~11 КБ/с — ровно столько, сколько занимает поток A2DP, и звук
+# на колонке рвался (30 с музыки уходили 117 с). Заплатку заливаем
+# на медленной скорости, как и раньше, а потом переподключаемся:
+# заплатка живёт в чипе, пока с него не снято питание.
+pkill hciattach 2>/dev/null
+hciconfig hci0 down 2>/dev/null
+sleep 1
+hciattach -s 115200 /dev/ttyHS0 bcm43xx 921600 flow nosleep 7c:61:93:45:4b:89 >>/tmp/btattach.log 2>&1 &
+sleep 6
+hciconfig hci0 up 2>/dev/null
+sleep 1
+
 # заливка сбрасывает адрес в мусорный — возвращаем свой (0xFC01)
 hcitool -i hci0 cmd 0x3f 0x01 0x89 0x4b 0x45 0x93 0x61 0x7c >/dev/null 2>&1
 sleep 1

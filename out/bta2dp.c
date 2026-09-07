@@ -89,6 +89,7 @@ static void say(const char *s)
 #include <sys/ioctl.h>
 #define HCISETRAW_ 0x400448dc                 /* _IOW('H', 220, int) */
 static int raw_on = 0;
+static int fifo_fd = -1;                    /* канал от плеера */
 static void raw_mode(int on)
 {
 	struct { unsigned short dev_id; unsigned dev_opt; } dr = { 0, (unsigned)on };
@@ -230,10 +231,56 @@ static int pump(int timeout_ms)
 		int n = r - 3;
 		if (code != 0x13)
 			hexline("событие", d + 1, r - 1);
+		if (code == 0x0e && n >= 3 && b[1] == 0x05 && b[2] == 0x10
+		    && n >= 10) {                        /* Read Buffer Size */
+			if (b[3] == 0x00) {
+				acl_mtu = b[4] | (b[5] << 8);
+				credits = b[7] | (b[8] << 8);
+				printf("буферы контроллера: пакет %d байт, мест %d\n",
+				       acl_mtu, credits);
+				fflush(stdout);
+			}
+		}
+		if (code == 0x0f && n >= 4 && b[0] != 0x00) {  /* Command Status */
+			printf("контроллер отверг команду 0x%04x (код 0x%02x)\n",
+			       b[2] | (b[3] << 8), b[0]);
+			fflush(stdout);
+		}
+		if (code == 0x12 && n >= 8) {           /* Role Change */
+			printf("роль сменилась: мы %s (код %d)\n",
+			       b[7] ? "ведомые" : "ведущие", b[0]);
+			fflush(stdout);
+		}
+		if (code == 0x0e && n >= 7 && b[1] == 0x09 && b[2] == 0x08) {
+			printf("роль в паре: мы %s\n",
+			       b[6] ? "ведомые" : "ведущие");
+			fflush(stdout);
+		}
+		if (code == 0x1b && n >= 3) {           /* Max Slots Change */
+			printf("максимум слотов в пакете: %d\n", b[2]);
+			fflush(stdout);
+		}
+		if (code == 0x1d && n >= 5) {           /* Packet Type Changed */
+			printf("типы пакетов канала: 0x%04x (код %d)\n",
+			       b[3] | (b[4] << 8), b[0]);
+			fflush(stdout);
+		}
 		if (code == 0x13 && n >= 5) {           /* Number of Completed */
 			int k = b[0];
 			for (int i = 0; i < k; i++)
 				credits += b[1 + i * 4 + 2] | (b[1 + i * 4 + 3] << 8);
+		} else if (code == 0x14 && n >= 6) {   /* Mode Change */
+			/* Колонка уводит канал в дремоту (sniff) уже после
+			 * настройки, и тогда контроллер отдаёт всего ~19 пакетов
+			 * в секунду вместо нужных 70 — звук рвётся. Возвращаем
+			 * канал в активный режим каждый раз, как это заметим. */
+			if (b[3] != 0x00) {
+				unsigned char h2[2] = { b[1], b[2] };
+				send_cmd(0x0804, h2, 2);        /* Exit Sniff Mode */
+				unsigned char lp[4] = { b[1], b[2], 0x00, 0x00 };
+				send_cmd(0x080d, lp, 4);        /* и запрет на будущее */
+				say("канал ушёл в дремоту — вывожу обратно");
+			}
 		} else if (code == 0x05 && n >= 4) {   /* Disconnection */
 			unsigned short h = b[1] | (b[2] << 8);
 			if (h == handle) {
@@ -273,15 +320,24 @@ static int pump(int timeout_ms)
 	return 0;
 }
 
+static double t_wait = 0;      /* сколько всего ждали кредитов */
+static long n_pkt = 0;         /* сколько пакетов ушло */
+static long n_byte = 0;
+
 /* отправка L2CAP-кадра в канал; ждём кредит контроллера */
 static int l2_send(unsigned short cid, const unsigned char *d, int len)
 {
+	/* Ждём кредит контроллера. Слать «через силу» нельзя: буферы
+	 * переполняются, пакеты пропадают, и колонка вместо музыки
+	 * получает обрывки — проверено, звук пропал совсем. */
+	double tw0 = now_s();
 	while (credits <= 0) {
 		if (!pump(1000)) {
 			say("контроллер не возвращает кредиты");
 			return -1;
 		}
 	}
+	t_wait += now_s() - tw0;
 	unsigned char pkt[2048];
 	int l2 = len + 4;
 	if (l2 + 5 > (int)sizeof(pkt) || l2 > acl_mtu) {
@@ -300,6 +356,8 @@ static int l2_send(unsigned short cid, const unsigned char *d, int len)
 	memcpy(pkt + 9, d, len);
 	hexline("-> L2CAP", pkt + 5, len + 4);
 	credits--;
+	n_pkt++;
+	n_byte += 9 + len;
 	if (write(hci, pkt, 9 + len) < 0) {
 		perror("write acl");
 		return -1;
@@ -408,7 +466,7 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 			dcid = rs;
 			/* наш Config Request: MTU 672 */
 			unsigned char c[8] = { dcid & 0xff, dcid >> 8, 0, 0,
-					       0x01, 0x02, 0xa0, 0x02 };
+					       0x01, 0x02, 0x7f, 0x03 };  /* MTU 895 */
 			myid = sig_id++;
 			l2_sig(0x04, myid, c, 8);
 			conf_sent = 1;
@@ -530,6 +588,19 @@ int main(int argc, char **argv)
 	for (int i = 0; i < 6; i++)
 		dst[i] = (unsigned char)v[5 - i];
 	signal(SIGPIPE, SIG_IGN);
+	/* Канал плеера открываем ПЕРВЫМ ДЕЛОМ, до дозвона: пока читателя
+	 * нет, плеер либо висит в open(), либо ловит SIGPIPE на записи и
+	 * умирает — так и случилось. На чтение-запись, чтобы конец потока
+	 * не наступал на паузах. */
+	if (argc > 2 && (!strncmp(argv[2], "/run/", 5) || strstr(argv[2], ".pcm"))) {
+		fifo_fd = open(argv[2], O_RDWR);
+		if (fifo_fd < 0) {
+			printf("нет канала %s%c", argv[2], 10);
+			return 1;
+		}
+		printf("канал %s открыт, жду колонку%c", argv[2], 10);
+		fflush(stdout);
+	}
 	signal(SIGTERM, on_signal);
 	signal(SIGINT, on_signal);
 	debug = getenv("BTA2DP_DEBUG") != NULL;
@@ -661,6 +732,58 @@ int main(int argc, char **argv)
 	printf("ACL-канал установлен, ручка %d\n", handle);
 	fflush(stdout);
 	usleep(300000);
+
+	/* Запрещаем каналу «дремать». Колонка переводит его в режим sniff
+	 * (данные только в редкие окна), и контроллер отдавал всего ~19
+	 * пакетов в секунду вместо нужных ~70 — звук выходил рваным.
+	 * Write Link Policy Settings = 0 запрещает sniff/hold/park, а
+	 * Exit Sniff Mode выводит из него, если колонка уже увела канал. */
+	{
+		/* Кто в паре главный. Если главная колонка, мы передаём только
+		 * когда она нас опросит, а опрашивает она редко — поток и
+		 * упирался в 10.8 КБ/с (предел односотовых пакетов). Просим
+		 * главенство себе: сперва разрешаем смену роли в политике,
+		 * потом Switch Role, и лишь затем запрещаем дремоту. */
+		if (!getenv("BTA2DP_NOMASTER")) {
+			unsigned char lp0[4] = { handle & 0xff, handle >> 8,
+						 0x01, 0x00 };  /* смена роли можно */
+			send_cmd(0x080d, lp0, 4);
+			usleep(50000);
+			unsigned char sr[7];
+			memcpy(sr, dst, 6);
+			sr[6] = 0x00;                   /* хотим быть ведущими */
+			send_cmd(0x080b, sr, 7);
+			for (int i = 0; i < 40; i++)
+				pump(50);
+			unsigned char rd[2] = { handle & 0xff, handle >> 8 };
+			send_cmd(0x0809, rd, 2);
+			for (int i = 0; i < 10; i++)
+				pump(30);
+		}
+		/* Сколько мест в очереди контроллера и какой у него предел
+		 * пакета — раньше мы просто верили в 1021/6. */
+		send_cmd(0x1005, NULL, 0);
+		for (int i = 0; i < 10; i++)
+			pump(30);
+		/* 0x080d — политика ЭТОГО канала (0x080f была бы «по
+		 * умолчанию», и параметры у неё другие: с ней команда просто
+		 * отвергалась, а канал продолжал дремать) */
+		unsigned char lp[4] = { handle & 0xff, handle >> 8, 0x00, 0x00 };
+		send_cmd(0x080d, lp, 4);
+		usleep(50000);
+		unsigned char dp[2] = { 0x00, 0x00 };   /* и для будущих каналов */
+		send_cmd(0x080f, dp, 2);
+		usleep(50000);
+		unsigned char h2[2] = { handle & 0xff, handle >> 8 };
+		send_cmd(0x0804, h2, 2);
+		usleep(50000);
+		/* Разрешаем каналу крупные пакеты (DM1..DH5). Скорость держалась
+		 * около 11 КБ/с — это предел односотовых DM1; в Create Connection
+		 * типы заданы, но контроллер мог сузить их при установлении. */
+		unsigned char pt[4] = { handle & 0xff, handle >> 8, 0x18, 0xcc };
+		send_cmd(0x040f, pt, 4);
+		usleep(100000);
+	}
 
 	/* Аутентификацию начинаем САМИ, до L2CAP. Иначе её начинает колонка:
 	 * спрашивает ключ связи, и если ключа нет (первое сопряжение не
@@ -879,13 +1002,7 @@ int main(int argc, char **argv)
 		 * open не ждёт писателя, а чтение никогда не упирается в конец
 		 * потока, когда плеер молчит (пауза, смена дорожки) — иначе
 		 * bta2dp завершался бы на каждой паузе и рвал соединение. */
-		int fd = open(argv[2], O_RDWR);
-		if (fd < 0) {
-			printf("нет канала %s%c", argv[2], 10);
-			hangup();
-			return 1;
-		}
-		in = fdopen(fd, "rb");
+		in = fdopen(fifo_fd, "rb");
 		printf("читаю канал %s (PCM 44100/стерео/16)%c", argv[2], 10);
 	} else {
 		in = fopen(argv[2], "rb");
@@ -948,8 +1065,10 @@ int main(int argc, char **argv)
 		}
 		if (bad)
 			break;
+		/* BTA2DP_FLOOD — измерительный режим: шлём без пауз, чтобы
+		 * увидеть предел радио, а не наш темп. */
 		double due = t0 + (double)frames * 128 / 44100.0;
-		double wait = due - now_s();
+		double wait = getenv("BTA2DP_FLOOD") ? -1 : due - now_s();
 		if (wait > 0)
 			usleep((useconds_t)(wait * 1e6));
 		else
@@ -964,6 +1083,8 @@ int main(int argc, char **argv)
 			fflush(stdout);
 		}
 	}
+	printf("пакетов %ld, байт %ld, ждали кредитов %.1f с\n",
+	       n_pkt, n_byte, t_wait);
 	printf("конец потока, %.1f с\n", frames * 128 / 44100.0);
 	sbc_finish(&sbc);
 	if (handle) {
