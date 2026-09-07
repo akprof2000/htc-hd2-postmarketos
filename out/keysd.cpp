@@ -172,6 +172,17 @@ static void rockbox_key(const char *key)
     sh(cmd);
 }
 
+// Долгое нажатие: Rockbox отличает удержание от касания и вешает на
+// него другое действие (на центре — контекстное меню и остановку).
+static void rockbox_hold(const char *key)
+{
+    char cmd[192];
+    snprintf(cmd, sizeof(cmd),
+             "DISPLAY=:0 sh -c 'xdotool keydown %s; sleep 1.2; "
+             "xdotool keyup %s'", key, key);
+    sh(cmd);
+}
+
 static void set_hw_volume(int vol)
 {
     int fd = open("/dev/msm_audio_ctl", O_RDWR);
@@ -374,6 +385,8 @@ static double dark_at = 0;
                             volume_step(-volume_next_step());
                         break;
                     case K_SEND:
+                        if (rockbox_front())
+                            break;             // разберём на отпускании
                         if (st == "ringing")
                             at_cmd("ATA");
                         else
@@ -387,6 +400,8 @@ static double dark_at = 0;
                         }
                         break;
                     case K_HOME:
+                        if (rockbox_front())
+                            break;             // разберём на отпускании
                         sh("DISPLAY=:0 wmctrl -a 'Домой'");
                         break;
                     case K_MENU:
@@ -423,7 +438,21 @@ static double dark_at = 0;
                 } else if (ev.value == 0) {    // отпускание
                     double d = now_s() - press_at[ev.code & 511];
                     press_at[ev.code & 511] = 0;
-                    if (ev.code == K_END) {
+                    // В Rockbox зелёная — «выбрать» (пуск/пауза), а
+                    // удержание — контекстное меню и остановка. «Домой»
+                    // коротко — следующий трек, удержанием — выход на
+                    // рабочий стол: иначе из плеера некуда деться.
+                    if (ev.code == K_SEND && rockbox_front()) {
+                        if (d >= 0.6)
+                            rockbox_hold("KP_5");
+                        else
+                            rockbox_key("KP_5");
+                    } else if (ev.code == K_HOME && rockbox_front()) {
+                        if (d >= 0.6)
+                            sh("DISPLAY=:0 wmctrl -a 'Домой'");
+                        else
+                            rockbox_key("KP_6");
+                    } else if (ev.code == K_END) {
                         if (hung_up)
                             hung_up = 0;       // этим нажатием сбросили вызов
                         else if (woke_by_press)
