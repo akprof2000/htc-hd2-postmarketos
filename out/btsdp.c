@@ -38,6 +38,9 @@ static int debug = 0;
 /* номера НАШИХ каналов (см. sig_scid): по ним отличаем свои сигналы
  * от сигналов к каналам ядра */
 static unsigned short my_scids[4] = { 0x0070, 0x0071, 0, 0 };
+/* Каналы устройства, по одному на наш из my_scids: в Config Response
+ * надо ставить номер канала ПОЛУЧАТЕЛЯ, то есть его, а не наш. */
+static unsigned short peer_dcids[4] = { 0, 0, 0, 0 };
 
 static void hexline(const char *what, const unsigned char *d, int n)
 {
@@ -403,10 +406,18 @@ static void l2_handle_peer_sig(const unsigned char *f, int n)
 		return;
 	int code = f[0], id = f[1];
 	if (code == 0x04 && n >= 8) {               /* Config Request */
-		unsigned short dcid = f[4] | (f[5] << 8);
-		if (!is_my_cid(dcid))
+		unsigned short mycid = f[4] | (f[5] << 8);
+		int idx = -1;
+		for (int i = 0; i < 4; i++)
+			if (my_scids[i] && my_scids[i] == mycid) { idx = i; break; }
+		if (idx < 0)
 			return;
-		unsigned char r[6] = { f[4], f[5], 0, 0, 0, 0 };
+		/* Гарнитура XP500 на ответ с НАШИМ номером канала не реагирует:
+		 * сопоставить его со своим каналом она не может, конфигурация с
+		 * её стороны не завершается, канал остаётся полуоткрытым и все
+		 * запросы молча пропадают. Колонка это прощала. */
+		unsigned short their = peer_dcids[idx] ? peer_dcids[idx] : mycid;
+		unsigned char r[6] = { their & 0xff, their >> 8, 0, 0, 0, 0 };
 		l2_sig(0x05, id, r, 6);
 	} else if (code == 0x06 && n >= 8) {        /* Disconnect Request */
 		unsigned short dcid = f[4] | (f[5] << 8);
@@ -452,6 +463,9 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 				return 0;
 			}
 			dcid = rs;
+			for (int i = 0; i < 4; i++)
+				if (my_scids[i] == scid)
+					peer_dcids[i] = dcid;
 			/* наш Config Request: MTU 672 */
 			unsigned char c[8] = { dcid & 0xff, dcid >> 8, 0, 0,
 					       0x01, 0x02, 0x7f, 0x03 };  /* MTU 895 */
@@ -625,6 +639,48 @@ static void sdp_service_name(const unsigned char *rec, int n,
 	out[vl] = 0;
 }
 
+/* Простой запрос поиска (ServiceSearchRequest): только «есть ли служба».
+ * Короче полного, и некоторые гарнитуры отвечают лишь на него.
+ * Возвращает число найденных записей, -1 — молчание, -2 — отказ. */
+static int sdp_ss(unsigned short uuid, unsigned short *tid)
+{
+	unsigned char req[16], *p = req;
+	*p++ = 0x02;
+	*p++ = *tid >> 8; *p++ = *tid & 0xff;
+	*p++ = 0x00; *p++ = 0x08;                 /* длина параметров */
+	*p++ = 0x35; *p++ = 0x03;                 /* образец: один UUID16 */
+	*p++ = 0x19; *p++ = uuid >> 8; *p++ = uuid & 0xff;
+	*p++ = 0x00; *p++ = 0x10;                 /* до 16 записей */
+	*p++ = 0x00;                              /* без продолжения */
+	(*tid)++;
+	if (l2_send(sig_dcid, req, (int)(p - req)) < 0)
+		return -1;
+	unsigned char rsp[256];
+	int n = l2_recv(sig_scid, rsp, sizeof(rsp), 6000);
+	if (n <= 0)
+		return -1;
+	hexline("ответ SS", rsp, n);
+	if (rsp[0] == 0x01)
+		return -2;
+	if (rsp[0] != 0x03 || n < 9)
+		return -1;
+	return (rsp[7] << 8) | rsp[8];            /* CurrentServiceRecordCount */
+}
+
+/* Показать всё, что накопилось в очереди кадров с чужих каналов, — вдруг
+ * гарнитура отвечает не туда, куда мы ждём. */
+static void show_queue(void)
+{
+	for (int i = 0; i < qn; i++) {
+		printf("  кадр на канал 0x%04x, %d байт:", q[i].cid, q[i].len);
+		for (int k = 0; k < q[i].len && k < 24; k++)
+			printf(" %02x", q[i].data[k]);
+		printf("%s\n", q[i].len > 24 ? " …" : "");
+	}
+	if (!qn)
+		printf("  очередь кадров пуста\n");
+}
+
 /* ── main ──────────────────────────────────────────────────────────── */
 int main(int argc, char **argv)
 {
@@ -749,7 +805,11 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			handle = b[1] | (b[2] << 8);
-		} else if (d[1] == 0x0f && r >= 7 && b[0]) {
+		} else if (d[1] == 0x0f && r >= 7 && b[0] &&
+			   b[2] == 0x05 && b[3] == 0x04) {
+			/* Статус ИМЕННО вызова (0x0405). Статусы наших же разрывов
+			 * при самолечении («нет такой ручки», 0x12) сюда не
+			 * попадают — раньше они принимались за отказ на вызов. */
 			if (b[0] == 0x0b && !retried) {
 				/* «канал уже есть» — остался от убитого процесса;
 				 * рвём возможные ручки и зовём ещё раз */
@@ -758,6 +818,19 @@ int main(int argc, char **argv)
 					unsigned char dc[3] = { (unsigned char)h, 0, 0x13 };
 					send_cmd(0x0406, dc, 3);
 					usleep(150000);
+				}
+				/* выгребаем ответы на разрывы, чтобы они не
+				 * перепутались с ответом на новый вызов */
+				{
+					double t_end = now_s() + 0.6;
+					while (now_s() < t_end) {
+						struct pollfd pf2 = { hci, POLLIN, 0 };
+						if (poll(&pf2, 1, 100) > 0) {
+							unsigned char junk[300];
+							if (read(hci, junk, sizeof(junk)) < 0)
+								break;
+						}
+					}
 				}
 				retried = 1;
 				send_cmd(0x0405, cc, 13);
@@ -863,6 +936,25 @@ int main(int argc, char **argv)
 			say("аутентификация не подтвердилась за 20 с — пробую канал всё равно");
 	}
 
+	/* Шифрование — следующая ступень после аутентификации. Гарнитура с
+	 * PIN-кодом (XP500) на незашифрованные данные не отвечает вовсе:
+	 * канал принимает, а запросы служб молча роняет. Просим контроллер
+	 * включить шифрование и ждём Encryption Change (0x08). */
+	if (!getenv("BTA2DP_NOAUTH") && !getenv("BTA2DP_NOENC")) {
+		unsigned char e[3] = { handle & 0xff, handle >> 8, 0x01 };
+		send_cmd(0x0413, e, 3);                  /* Set Connection Encryption */
+		double until = now_s() + 10;
+		int done = 0;
+		while (now_s() < until && handle && !done) {
+			if (pump(500) == 0x08) {
+				say("шифрование включено");
+				done = 1;
+			}
+		}
+		if (!done)
+			say("шифрование не подтверждено — иду дальше без него");
+	}
+
 	/* Ядро завело у себя запись об этом ACL (по Command Status нашего
 	 * вызова) и, раз в ядре её никто не держит, через несколько секунд
 	 * само рвёт канал (Disconnect, код 0x16 «локальным хостом»). Даём
@@ -953,10 +1045,38 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		unsigned char rsp[2048];
-		int n = l2_recv(sig_scid, rsp, sizeof(rsp), 5000);
+		int n = l2_recv(sig_scid, rsp, sizeof(rsp), 8000);
+		if (n <= 0) {
+			printf("устройство молчит на полный запрос — пробую простой\n");
+			fflush(stdout);
+			for (int t = 0; t < 4; t++) pump(500);
+			show_queue();
+			static const unsigned short probes[] = { 0x111e, 0x1108, 0x1002 };
+			static const char *names[] = { "Handsfree", "Headset", "все службы" };
+			for (int t = 0; t < 3; t++) {
+				int r = sdp_ss(probes[t], &tid);
+				printf("  простой поиск %s: %s\n", names[t],
+				       r >= 0 ? "ответила" : r == -2 ? "отказала" : "молчит");
+				if (r >= 0) printf("    записей: %d\n", r);
+				fflush(stdout);
+			}
+			show_queue();
+			hangup();
+			return 1;
+		}
+		if (rsp[0] == 0x01) {              /* отказ SDP */
+			int code = n >= 7 ? ((rsp[5] << 8) | rsp[6]) : -1;
+			printf("устройство отказало, код %d%s\n", code,
+			       code == 3 ? " (не знает такого образца поиска)" :
+			       code == 4 ? " (не понимает размер запроса)" :
+			       code == 5 ? " (не понимает продолжение)" : "");
+			hangup();
+			return 1;
+		}
 		if (n < 7 || rsp[0] != 0x07) {
-			printf("устройство не ответило на запрос служб%s\n",
-			       n > 0 && rsp[0] == 0x01 ? " (сообщило об ошибке)" : "");
+			printf("непонятный ответ: %d байт, первый 0x%02x\n",
+			       n, rsp[0]);
+			hexline("ответ", rsp, n);
 			hangup();
 			return 1;
 		}

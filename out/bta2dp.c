@@ -700,7 +700,11 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			handle = b[1] | (b[2] << 8);
-		} else if (d[1] == 0x0f && r >= 7 && b[0]) {
+		} else if (d[1] == 0x0f && r >= 7 && b[0] &&
+			   b[2] == 0x05 && b[3] == 0x04) {
+			/* Статус ИМЕННО вызова (0x0405). Статусы наших же разрывов
+			 * при самолечении («нет такой ручки», 0x12) сюда не
+			 * попадают — раньше они принимались за отказ на вызов. */
 			if (b[0] == 0x0b && !retried) {
 				/* «канал уже есть» — остался от убитого процесса;
 				 * рвём возможные ручки и зовём ещё раз */
@@ -709,6 +713,19 @@ int main(int argc, char **argv)
 					unsigned char dc[3] = { (unsigned char)h, 0, 0x13 };
 					send_cmd(0x0406, dc, 3);
 					usleep(150000);
+				}
+				/* выгребаем ответы на разрывы, чтобы они не
+				 * перепутались с ответом на новый вызов */
+				{
+					double t_end = now_s() + 0.6;
+					while (now_s() < t_end) {
+						struct pollfd pf2 = { hci, POLLIN, 0 };
+						if (poll(&pf2, 1, 100) > 0) {
+							unsigned char junk[300];
+							if (read(hci, junk, sizeof(junk)) < 0)
+								break;
+						}
+					}
 				}
 				retried = 1;
 				send_cmd(0x0405, cc, 13);
