@@ -436,6 +436,10 @@ static void l2_handle_peer_sig(const unsigned char *f, int n)
 	}
 }
 
+/* разбор сигналов гарнитуры (ниже) — нужен и внутри l2_open: пока мы
+ * ждём свой канал, гарнитура может просить открыть свои */
+static void handle_sig(const unsigned char *f, int n);
+
 /* открыть канал к PSM; возвращает DCID (канал колонки) или 0 */
 static unsigned short l2_open(unsigned short psm, unsigned short scid,
 			      int *out_mtu)
@@ -499,7 +503,7 @@ static unsigned short l2_open(unsigned short psm, unsigned short scid,
 			l2_handle_peer_sig(f, n);
 			peer_conf = 1;
 		} else
-			l2_handle_peer_sig(f, n);
+			handle_sig(f, n);     /* чужие запросы — нашим разбором */
 		if (dcid && conf_ok && peer_conf)
 			return dcid;
 	}
@@ -568,6 +572,8 @@ static double sco_try_at = 0, sco_retry_at = 0;
 static int acl_up = 0;
 static double acl_at = 0;           /* когда появился канал */
 static int init_tried = 0;          /* открывать ли соединение самим */
+/* сколько ждать, пока гарнитура откроет соединение сама (BTHFP_INITDELAY) */
+static double init_delay = 12;
 /* BTHFP_CALL=<MAC>: гарнитура сама не подключается (XP500 так и не
  * постучалась за 15 минут), поэтому зовём её сами, а каналы открывает
  * уже она — это мы и принимаем. */
@@ -717,6 +723,7 @@ static void on_event(int code, const unsigned char *b, int n)
 			memcpy(a, b, 6);
 			a[6] = 0x01;                     /* роль не меняем */
 			send_cmd(0x0409, a, 7);
+			init_tried = 1;         /* подключилась сама — каналы откроет она */
 			lg("входящее подключение от %s — принимаю", m);
 		} else {
 			unsigned char a[21];
@@ -799,6 +806,13 @@ static void on_event(int code, const unsigned char *b, int n)
 				send_cmd(0x041d, rv, 2);
 			}
 		}
+	} else if (code == 0x0e && n >= 4 && b[1] == 0x05 && b[2] == 0x14) {
+		/* Read RSSI: контроллер не сообщает о разрыве, поэтому канал
+		 * проверяем сами — «такого канала нет» значит гарнитура ушла */
+		if (b[3] == 0x12 && acl_up && handle) {
+			lg("канал с гарнитурой пропал без извещения — считаю отключённой");
+			handle = 0;
+		}
 	} else if (code == 0x0c && n >= 3) {             /* Read Remote Version Complete */
 		unsigned short h = b[1] | (b[2] << 8);
 		if (probe_h && !acl_up) {
@@ -807,6 +821,11 @@ static void on_event(int code, const unsigned char *b, int n)
 			probe_h = 0;
 			lg("скрытый канал найден, ручка %d — беру его себе", h);
 			acl_at = now_s();
+			if (call_on && !getenv("BTHFP_NOAUTH")) {
+				unsigned char ah[2] = { h & 0xff, h >> 8 };
+				send_cmd(0x0411, ah, 2);
+				lg("прошу аутентификацию");
+			}
 			unsigned char lp[4] = { h & 0xff, h >> 8, 0x00, 0x00 };
 			send_cmd(0x080d, lp, 4);
 		}
@@ -1628,6 +1647,10 @@ static void ag_initiate(void)
 	init_tried = 1;
 	lg("гарнитура каналы не открывает — открываю сам");
 	int mtu;
+	if (peer_dcids[cid_index(CID_RFC)] || dlci_up) {
+		lg("гарнитура открыла соединение сама — не мешаю");
+		return;
+	}
 	unsigned short sd = l2_open(1, CID_SDPC, &mtu);
 	if (!sd) {
 		lg("канал опроса служб гарнитуры не открылся");
@@ -1645,6 +1668,10 @@ static void ag_initiate(void)
 		return;
 	}
 	lg("у гарнитуры служба %s на канале %d", hsp ? "Headset" : "Handsfree", ch);
+	if (peer_dcids[cid_index(CID_RFC)] || dlci_up) {
+		lg("гарнитура открыла соединение сама — не мешаю");
+		return;
+	}
 	unsigned short rc = l2_open(3, CID_RFC, &mtu);
 	if (!rc) {
 		lg("канал RFCOMM к гарнитуре не открылся");
@@ -1765,6 +1792,8 @@ int main(void)
 	signal(SIGTERM, on_signal);
 	ev_hook = on_event;
 	my_scids[2] = 0x0072;               /* наш канал опроса служб гарнитуры */
+	if (getenv("BTHFP_INITDELAY"))
+		init_delay = atof(getenv("BTHFP_INITDELAY"));
 	{
 		const char *ca = getenv("BTHFP_CALL");
 		unsigned v[6];
@@ -1816,7 +1845,16 @@ int main(void)
 			send_cmd(0x0c1a, &scan, 1);
 		}
 		double t = now_s();
-		if (acl_up && call_on && !init_tried && !dlci_up && t - acl_at > 4)
+		{
+			static double last_alive = 0;
+			if (acl_up && handle && t - last_alive >= 5) {
+				last_alive = t;
+				unsigned char rh[2] = { handle & 0xff, handle >> 8 };
+				send_cmd(0x1405, rh, 2);         /* Read RSSI */
+			}
+		}
+		if (acl_up && call_on && !init_tried && !dlci_up &&
+		    t - acl_at > init_delay)
 			ag_initiate();
 		if (call_on && !acl_up && t >= call_next) {
 			page_headset();
