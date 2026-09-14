@@ -1,0 +1,32 @@
+#!/bin/sh
+# hswatch — сторож гарнитуры. Гарнитура XP500 открыта для вызова лишь
+# короткое окно после включения или сопряжения. Каждые 4 с окликаем её
+# запросом имени (дёшево, без сырого режима); как только ответила —
+# сразу опрос служб: настоящим адресом в R2 (так до неё дозвалось ядро),
+# затем R1 и R0. Итог — в /tmp/hswatch.log, строка «ИТОГ».
+MAC=00:13:8A:52:84:82
+LOG=/tmp/hswatch.log
+END=$(( $(date +%s) + ${1:-900} ))
+echo "сторож запущен $(date +%H:%M:%S), жду до $(date -d @$END +%H:%M:%S 2>/dev/null)" > $LOG
+pkill -x btagent 2>/dev/null
+while [ "$(date +%s)" -lt "$END" ]; do
+    if timeout 8 hcitool -i hci0 name $MAC 2>/dev/null | grep -q .; then
+        echo "$(date +%H:%M:%S) гарнитура ответила на запрос имени" >> $LOG
+        for m in 2 1 0; do
+            echo "--- опрос служб, режим R$m" >> $LOG
+            BTA2DP_DEBUG=1 BTA2DP_PSRM=$m timeout 90 /usr/local/bin/btsdp $MAC > /tmp/hswatch.r$m 2>&1
+            grep -vE 'событие 13|^  -> L2CAP|^  событие' /tmp/hswatch.r$m | tail -30 >> $LOG
+            if grep -q 'канал RFCOMM' /tmp/hswatch.r$m; then
+                echo "ИТОГ: службы получены (режим R$m)" >> $LOG
+                exit 0
+            fi
+            if grep -q 'канал SDP открыт' /tmp/hswatch.r$m; then
+                echo "ИТОГ: канал открылся, но службы не получены (режим R$m)" >> $LOG
+                exit 0
+            fi
+        done
+        echo "$(date +%H:%M:%S) ответила, но вызов не прошёл — жду дальше" >> $LOG
+    fi
+    sleep 4
+done
+echo "ИТОГ: за отведённое время гарнитура так и не открылась" >> $LOG

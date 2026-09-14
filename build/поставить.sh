@@ -1,18 +1,23 @@
 #!/bin/sh
-# Положить собранный бинарник на телефон.
-#   build/поставить.sh bta2dp
+# Положить собранные бинарники на телефон:
+#     sh build/поставить.sh bthfp phoned voice
 # Через scp нельзя — на телефоне нет sftp-server, поэтому потоком.
 # Через .new и mv — потому что заменять работающий файл на месте нельзя.
-set -e
-ИМЯ="$1"
-[ -n "$ИМЯ" ] || { echo "укажите имя программы"; exit 2; }
+#
+# Имена переменных латиницей: оболочка кириллические имена не принимает.
+KEY=out/ssh/openwrt_key
+HOST=root@192.168.100.235
 
-КЛЮЧ=out/ssh/openwrt_key
-АДРЕС=root@192.168.100.235
-ФАЙЛ="out/bin/$ИМЯ"
-[ -f "$ФАЙЛ" ] || { echo "нет $ФАЙЛ — сначала соберите"; exit 1; }
+[ $# -gt 0 ] || { echo "укажите имена программ"; exit 2; }
 
-ssh -o StrictHostKeyChecking=no -i "$КЛЮЧ" "$АДРЕС" \
-    "cat > /usr/local/bin/$ИМЯ.new" < "$ФАЙЛ"
-ssh -o StrictHostKeyChecking=no -i "$КЛЮЧ" "$АДРЕС" \
-    "chmod +x /usr/local/bin/$ИМЯ.new && mv /usr/local/bin/$ИМЯ.new /usr/local/bin/$ИМЯ && ls -l /usr/local/bin/$ИМЯ"
+fail=0
+for name in "$@"; do
+    file="out/bin/$name"
+    [ -f "$file" ] || { echo "нет $file — сначала соберите"; fail=1; continue; }
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "$KEY" "$HOST" \
+        "cat > /usr/local/bin/$name.new" < "$file" &&
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "$KEY" "$HOST" \
+        "chmod +x /usr/local/bin/$name.new && mv /usr/local/bin/$name.new /usr/local/bin/$name && ls -l /usr/local/bin/$name" ||
+    { echo "НЕ ПОСТАВЛЕНО: $name"; fail=1; }
+done
+exit $fail

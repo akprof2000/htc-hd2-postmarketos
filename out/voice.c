@@ -27,9 +27,12 @@
 #define DEV_HANDSET_MIC   0x1081512u
 #define DEV_HEADSET_SPKR  0x107ac8au   /* гарнитура */
 #define DEV_HEADSET_MIC   0x1081510u
+#define DEV_BT_SCO_SPKR   0x1081519u   /* Bluetooth-гарнитура */
+#define DEV_BT_SCO_MIC    0x1081518u
 
 int main(int argc, char **argv) {
 	int headset = (argc > 2 && argv[2][0] == 'h');
+	int bt = (argc > 2 && argv[2][0] == 'b');
 	int on = (argc > 1 && strcmp(argv[1], "on") == 0);
 
 	int ctl = open("/dev/msm_audio_ctl", O_RDWR);
@@ -43,8 +46,8 @@ int main(int argc, char **argv) {
 	}
 
 	/* маршрут: приём и передача */
-	uint32_t rx[2] = { headset ? DEV_HEADSET_SPKR : DEV_HANDSET_SPKR, 0 };
-	uint32_t tx[2] = { headset ? DEV_HEADSET_MIC  : DEV_HANDSET_MIC,  0 };
+	uint32_t rx[2] = { bt ? DEV_BT_SCO_SPKR : headset ? DEV_HEADSET_SPKR : DEV_HANDSET_SPKR, 0 };
+	uint32_t tx[2] = { bt ? DEV_BT_SCO_MIC : headset ? DEV_HEADSET_MIC  : DEV_HANDSET_MIC,  0 };
 	if (ioctl(ctl, AUDIO_SWITCH_DEVICE, &rx) < 0) perror("SWITCH rx");
 	if (ioctl(ctl, AUDIO_SWITCH_DEVICE, &tx) < 0) perror("SWITCH tx");
 

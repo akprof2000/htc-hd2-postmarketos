@@ -12,10 +12,10 @@
  * Состояние в /run/phone/:
  *     state    — idle | ringing | active | dialing
  *     number   — номер собеседника (если известен)
- *     route    — handset | headset | speaker
+ *     route    — handset | headset | speaker | bt
  *     mute     — 0 | 1
  *     log      — последние события
- *     cmd      — очередь (FIFO): AT-команды либо служебные «@route h»,
+ *     cmd      — очередь (FIFO): AT-команды либо служебные «@route h|l|b»,
  *                «@mute 1», «@vol 80»
  * История вызовов — /var/lib/phone/history:
  *     время;направление(in/out);номер;итог(ok/missed/busy);длительность
@@ -58,6 +58,9 @@
 #define DEV_HEADSET_SPKR 0x107ac8au
 #define DEV_HEADSET_MIC  0x1081510u
 #define DEV_SPKR_MONO    0x1081513u
+/* гарнитура Bluetooth: звук идёт по железной линии PCM к чипу */
+#define DEV_BT_SCO_SPKR  0x1081519u
+#define DEV_BT_SCO_MIC   0x1081518u
 
 static int modem_fd = -1;
 
@@ -178,6 +181,9 @@ static void audio_route(void)
 	if (!strcmp(route, "headset")) {
 		rx = DEV_HEADSET_SPKR;
 		tx = DEV_HEADSET_MIC;
+	} else if (!strcmp(route, "bt")) {
+		rx = DEV_BT_SCO_SPKR;
+		tx = DEV_BT_SCO_MIC;
 	} else if (!strcmp(route, "speaker")) {
 		rx = DEV_SPKR_MONO;
 		tx = DEV_HANDSET_MIC;
@@ -203,7 +209,8 @@ static void audio_start(void)
 	char route[32];
 	read_state("route", route, sizeof(route));
 	run_wait("/usr/local/bin/voice", "on",
-		 !strcmp(route, "headset") ? "h" : NULL);
+		 !strcmp(route, "headset") ? "h" :
+		 !strcmp(route, "bt") ? "b" : NULL);
 	voice_on = 1;
 	audio_route();
 	audio_mute();
@@ -518,6 +525,7 @@ static void internal(const char *cmd)
 			a++;
 		const char *v = "handset";
 		if (*a == 'h') v = "headset";
+		else if (*a == 'b') v = "bt";
 		else if (*a == 'l' || *a == 's') v = "speaker";
 		write_state("route", v);
 		audio_route();
