@@ -566,6 +566,17 @@ static unsigned short sco_handle = 0;
 static int sco_pending = 0;
 static double sco_try_at = 0, sco_retry_at = 0;
 static int acl_up = 0;
+static double acl_at = 0;           /* когда появился канал */
+static int init_tried = 0;          /* открывать ли соединение самим */
+/* BTHFP_CALL=<MAC>: гарнитура сама не подключается (XP500 так и не
+ * постучалась за 15 минут), поэтому зовём её сами, а каналы открывает
+ * уже она — это мы и принимаем. */
+static unsigned char call_addr[6];
+static int call_on = 0;
+static double call_next = 0;
+/* поиск скрытого канала: контроллер говорит «канал уже есть», а события
+ * о его появлении мы не получили — перебираем номера по одному */
+static int probe_h = 0;
 static unsigned short peer_mtu_of[4] = { 672, 672, 672, 672 };
 
 static void lg(const char *fmt, ...)
@@ -637,7 +648,7 @@ static void drop_foreign_frames(void)
 {
 	for (int i = 0; i < qn;) {
 		unsigned short c = q[i].cid;
-		if (c == 0x0001 || c == CID_SDP || c == CID_RFC) {
+		if (c == 0x0001 || c == CID_SDP || c == CID_RFC || c == 0x0072) {
 			i++;
 			continue;
 		}
@@ -683,6 +694,18 @@ static void sco_open(void)
 	lg("прошу голосовой канал");
 }
 
+static void page_headset(void)
+{
+	unsigned char cc[13];
+	memcpy(cc, call_addr, 6);
+	cc[6] = 0x18; cc[7] = 0xcc;            /* DM1..DH5 */
+	cc[8] = 0x02;                          /* R2: так до неё дозвалось ядро */
+	cc[9] = 0; cc[10] = 0; cc[11] = 0;
+	cc[12] = 0x01;                         /* смену роли разрешаем */
+	send_cmd(0x0405, cc, 13);
+	lg("зову гарнитуру сам (R2), каналы пусть открывает она");
+}
+
 /* ── события контроллера (зовётся из pump для каждого события) ─────── */
 static void on_event(int code, const unsigned char *b, int n)
 {
@@ -719,8 +742,14 @@ static void on_event(int code, const unsigned char *b, int n)
 			char m[20];
 			mac_str(b + 3, m);
 			lg("канал с %s установлен, ручка %d", m, h);
+			acl_at = now_s();
 			unsigned char lp[4] = { h & 0xff, h >> 8, 0x00, 0x00 };
 			send_cmd(0x080d, lp, 4);             /* без дремоты */
+			if (call_on && !getenv("BTHFP_NOAUTH")) {
+				unsigned char ah[2] = { h & 0xff, h >> 8 };
+				send_cmd(0x0411, ah, 2);         /* Authentication Requested */
+				lg("прошу аутентификацию");
+			}
 		} else {
 			sco_handle = h;
 			on_sco_up();
@@ -744,6 +773,43 @@ static void on_event(int code, const unsigned char *b, int n)
 		   b[2] == 0x28 && b[3] == 0x04) {       /* отказ Setup Sync */
 		sco_pending = 0;
 		sco_retry_at = now_s() + 5;
+	} else if (code == 0x06 && n >= 3) {             /* Authentication Complete */
+		if (b[0]) {
+			lg("аутентификация не прошла, код 0x%02x", b[0]);
+		} else {
+			lg("аутентификация пройдена — включаю шифрование");
+			unsigned char e[3] = { b[1], b[2], 0x01 };
+			send_cmd(0x0413, e, 3);
+		}
+	} else if (code == 0x0f && n >= 4 && b[0] == 0x0b &&
+		   b[2] == 0x05 && b[3] == 0x04) {       /* вызов: «канал уже есть» */
+		if (!acl_up && !probe_h) {
+			lg("канал с гарнитурой уже есть, но его номер неизвестен — ищу");
+			probe_h = 1;
+			unsigned char rv[2] = { 1, 0 };
+			send_cmd(0x041d, rv, 2);         /* Read Remote Version */
+		}
+	} else if (code == 0x0f && n >= 4 && b[2] == 0x1d && b[3] == 0x04) {
+		if (probe_h && b[0]) {                 /* такого номера нет — следующий */
+			if (++probe_h > 64) {
+				lg("скрытый канал не найден");
+				probe_h = 0;
+			} else {
+				unsigned char rv[2] = { probe_h, 0 };
+				send_cmd(0x041d, rv, 2);
+			}
+		}
+	} else if (code == 0x0c && n >= 3) {             /* Read Remote Version Complete */
+		unsigned short h = b[1] | (b[2] << 8);
+		if (probe_h && !acl_up) {
+			handle = h;
+			acl_up = 1;
+			probe_h = 0;
+			lg("скрытый канал найден, ручка %d — беру его себе", h);
+			acl_at = now_s();
+			unsigned char lp[4] = { h & 0xff, h >> 8, 0x00, 0x00 };
+			send_cmd(0x080d, lp, 4);
+		}
 	} else if (code == 0x08 && n >= 4) {
 		lg("шифрование канала: %s", b[3] ? "включено" : "выключено");
 	}
@@ -1111,6 +1177,11 @@ static unsigned char fcs(const unsigned char *d, int n)
 }
 
 static int dlci_up = 0, cfc = 0, tx_cred = 0, rx_cred = 0, rfc_mfs = 127;
+static int rfc_init = 0;            /* сеанс RFCOMM открыли мы */
+#define CR_CMD (rfc_init ? 1 : 0)    /* наши команды и данные */
+#define CR_RSP (rfc_init ? 0 : 1)    /* наши ответы (UA)      */
+static int got_ua0 = 0, got_ua_dlci = 0, got_pn = 0;
+#define CID_SDPC 0x0072             /* наш канал опроса служб гарнитуры */
 static int slc = 0, cmer = 0, clip = 0;
 static char at_buf[256];
 static int at_len = 0;
@@ -1123,6 +1194,8 @@ static void rfc_reset(void)
 	rfc_mfs = 127;
 	slc = cmer = clip = 0;
 	at_len = outn = 0;
+	rfc_init = 0;
+	got_ua0 = got_ua_dlci = got_pn = 0;
 }
 
 /* Мы — отвечающая сторона сеанса: наши ответы (UA) идут с C/R=1, наши
@@ -1162,7 +1235,7 @@ static void mcc_send(int type, int cr, const unsigned char *v, int len)
 	m[k++] = (len << 1) | 1;
 	memcpy(m + k, v, len);
 	k += len;
-	rfc_send(0, 0, 0xef, m, k, 0);
+	rfc_send(0, CR_CMD, 0xef, m, k, 0);
 }
 
 static void rfc_flush(void)
@@ -1174,7 +1247,7 @@ static void rfc_flush(void)
 			give = 10;
 			rx_cred += 10;
 		}
-		rfc_send(dlci_up, 0, 0xef, outq, c, give);
+		rfc_send(dlci_up, CR_CMD, 0xef, outq, c, give);
 		if (cfc)
 			tx_cred--;
 		memmove(outq, outq + c, outn - c);
@@ -1362,8 +1435,15 @@ static void mcc_handle(const unsigned char *info, int ilen)
 	if (ml > ilen - 2)
 		ml = ilen - 2;
 	if (t == 0x20 && ml >= 8) {                       /* PN */
-		if (!cr)
+		if (!cr) {                        /* ответ на наш PN */
+			cfc = (v[1] >> 4) == 0x0e;
+			tx_cred = cfc ? v[7] : 0;
+			rfc_mfs = v[4] | (v[5] << 8);
+			got_pn = 1;
+			lg("RFCOMM: гарнитура согласовала кадр до %d, кредиты %s",
+			   rfc_mfs, cfc ? "да" : "нет");
 			return;
+		}
 		unsigned char r[8];
 		memcpy(r, v, 8);
 		if ((v[1] >> 4) == 0x0f) {
@@ -1409,7 +1489,7 @@ static void rfc_frame(const unsigned char *f, int n)
 	}
 	int pf = ctrl & 0x10, type = ctrl & ~0x10;
 	if (type == 0x2f) {                                /* SABM */
-		rfc_send(dlci, 1, 0x73, NULL, 0, 0);       /* UA с битом F */
+		rfc_send(dlci, CR_RSP, 0x73, NULL, 0, 0);       /* UA с битом F */
 		if (dlci == 0) {
 			lg("RFCOMM: сеанс открыт");
 		} else {
@@ -1421,11 +1501,22 @@ static void rfc_frame(const unsigned char *f, int n)
 			mcc_send(0x38, 1, msc, 2);
 		}
 	} else if (type == 0x43) {                         /* DISC */
-		rfc_send(dlci, 1, 0x73, NULL, 0, 0);
+		rfc_send(dlci, CR_RSP, 0x73, NULL, 0, 0);
 		if (dlci == 0 || dlci == dlci_up) {
 			lg("RFCOMM: гарнитура закрыла %s", dlci ? "канал" : "сеанс");
 			rfc_reset();
 		}
+	} else if (type == 0x63) {                         /* UA */
+		if (dlci == 0) {
+			got_ua0 = 1;
+		} else {
+			dlci_up = dlci;
+			got_ua_dlci = 1;
+			unsigned char msc[2] = { (dlci << 2) | 2 | 1, 0x8d };
+			mcc_send(0x38, 1, msc, 2);
+		}
+	} else if (type == 0x0f) {                         /* DM */
+		lg("RFCOMM: гарнитура отказала в канале %d", dlci >> 1);
 	} else if (type == 0xef) {                         /* UIH */
 		const unsigned char *info = f + k;
 		int avail = n - k - 1;
@@ -1442,7 +1533,7 @@ static void rfc_frame(const unsigned char *f, int n)
 			if (cfc) {
 				rx_cred--;
 				if (rx_cred <= 3) {
-					rfc_send(dlci, 0, 0xef, NULL, 0, 10);
+					rfc_send(dlci, CR_CMD, 0xef, NULL, 0, 10);
 					rx_cred += 10;
 				}
 			}
@@ -1450,6 +1541,137 @@ static void rfc_frame(const unsigned char *f, int n)
 		}
 		rfc_flush();
 	}
+}
+
+
+/* ── разбор входящих кадров (общий для главного цикла и ожиданий) ── */
+static void dispatch_frames(void)
+{
+	unsigned char f[1100];
+	int n;
+	while ((n = take_frame(0x0001, f, sizeof(f))) > 0)
+		handle_sig(f, n);
+	while ((n = take_frame(CID_SDP, f, sizeof(f))) > 0)
+		sdp_frame(f, n);
+	while ((n = take_frame(CID_RFC, f, sizeof(f))) > 0)
+		rfc_frame(f, n);
+	while ((n = take_frame(CID_SDPC, f, sizeof(f))) > 0)
+		;                                /* запоздалые ответы опроса */
+	drop_foreign_frames();
+}
+
+static int wait_flag(int *flag, double secs)
+{
+	double end = now_s() + secs;
+	while (!*flag && handle && now_s() < end) {
+		pump(100);
+		dispatch_frames();
+	}
+	return *flag;
+}
+
+/* номер канала RFCOMM службы uuid у гарнитуры; 0 — нет, -1 — молчит */
+static int sdp_find_channel(unsigned short dcid, int uuid)
+{
+	static unsigned char blob[2048];
+	int bl = 0, cl = 0;
+	unsigned char cont[17];
+	for (int round = 0; round < 20; round++) {
+		unsigned char rq[48];
+		int m = 0;
+		rq[m++] = 0x06; rq[m++] = 0; rq[m++] = round + 1;
+		m += 2;
+		rq[m++] = 0x35; rq[m++] = 0x03;
+		rq[m++] = 0x19; rq[m++] = uuid >> 8; rq[m++] = uuid & 0xff;
+		rq[m++] = 0x00; rq[m++] = 0x40;          /* до 64 байт за раз */
+		rq[m++] = 0x35; rq[m++] = 0x05;          /* только атрибут 0x0004 */
+		rq[m++] = 0x0a; rq[m++] = 0x00; rq[m++] = 0x04;
+		rq[m++] = 0x00; rq[m++] = 0x04;
+		rq[m++] = cl;
+		memcpy(rq + m, cont, cl);
+		m += cl;
+		rq[3] = (m - 5) >> 8; rq[4] = (m - 5) & 0xff;
+		l2_send(dcid, rq, m);
+		unsigned char r[512];
+		int n = l2_recv(CID_SDPC, r, sizeof(r), 8000);
+		if (n <= 0) {
+			lg("опрос служб гарнитуры: молчит");
+			return -1;
+		}
+		if (r[0] != 0x07 || n < 7) {
+			lg("опрос служб гарнитуры: ответ 0x%02x, %d байт", r[0], n);
+			return -1;
+		}
+		int al = (r[5] << 8) | r[6];
+		if (8 + al > n)
+			return -1;
+		if (bl + al <= (int)sizeof(blob)) {
+			memcpy(blob + bl, r + 7, al);
+			bl += al;
+		}
+		cl = r[7 + al];
+		if (cl <= 0 || cl > 16 || 8 + al + cl > n)
+			break;
+		memcpy(cont, r + 8 + al, cl);
+	}
+	for (int i = 0; i + 4 < bl; i++)
+		if (blob[i] == 0x19 && blob[i + 1] == 0x00 && blob[i + 2] == 0x03 &&
+		    blob[i + 3] == 0x08)
+			return blob[i + 4];
+	return 0;
+}
+
+/* Гарнитура приняла наш вызов, но каналы не открывает — открываем сами
+ * (служебное соединение по инициативе шлюза профиль разрешает). */
+static void ag_initiate(void)
+{
+	init_tried = 1;
+	lg("гарнитура каналы не открывает — открываю сам");
+	int mtu;
+	unsigned short sd = l2_open(1, CID_SDPC, &mtu);
+	if (!sd) {
+		lg("канал опроса служб гарнитуры не открылся");
+		return;
+	}
+	int hsp = 0, ch = sdp_find_channel(sd, 0x111e);
+	if (ch == 0) {
+		ch = sdp_find_channel(sd, 0x1108);
+		hsp = 1;
+	}
+	unsigned char dr[4] = { sd & 0xff, sd >> 8, CID_SDPC & 0xff, CID_SDPC >> 8 };
+	l2_sig(0x06, sig_id++, dr, 4);
+	if (ch <= 0) {
+		lg("у гарнитуры не нашлось служб Handsfree и Headset");
+		return;
+	}
+	lg("у гарнитуры служба %s на канале %d", hsp ? "Headset" : "Handsfree", ch);
+	unsigned short rc = l2_open(3, CID_RFC, &mtu);
+	if (!rc) {
+		lg("канал RFCOMM к гарнитуре не открылся");
+		return;
+	}
+	peer_mtu_of[cid_index(CID_RFC)] = mtu;
+	rfc_reset();
+	rfc_init = 1;
+	rfc_send(0, 1, 0x3f, NULL, 0, 0);                /* SABM сеанса */
+	if (!wait_flag(&got_ua0, 10)) {
+		lg("RFCOMM: сеанс не открылся");
+		return;
+	}
+	int dl = ch * 2;
+	int mfs = mtu - 6;
+	if (mfs > 127)
+		mfs = 127;
+	unsigned char pn[8] = { dl, 0xf0, 0x07, 0x00, mfs & 0xff, mfs >> 8, 0x00, 0x07 };
+	rx_cred = 7;
+	mcc_send(0x20, 1, pn, 8);
+	wait_flag(&got_pn, 10);
+	rfc_send(dl, 1, 0x3f, NULL, 0, 0);               /* SABM канала */
+	if (!wait_flag(&got_ua_dlci, 10)) {
+		lg("RFCOMM: канал %d не открылся", ch);
+		return;
+	}
+	lg("RFCOMM открыт шлюзом — жду AT-команды гарнитуры");
 }
 
 /* ── раз в полсекунды: состояние звонка ───────────────────────────── */
@@ -1542,6 +1764,17 @@ int main(void)
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	ev_hook = on_event;
+	my_scids[2] = 0x0072;               /* наш канал опроса служб гарнитуры */
+	{
+		const char *ca = getenv("BTHFP_CALL");
+		unsigned v[6];
+		if (ca && sscanf(ca, "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2],
+					  &v[3], &v[4], &v[5]) == 6) {
+			for (int i = 0; i < 6; i++)
+				call_addr[i] = (unsigned char)v[5 - i];
+			call_on = 1;
+		}
+	}
 
 	/* виден и принимает подключения; класс — телефон с голосом */
 	unsigned char scan = 0x03;
@@ -1567,15 +1800,7 @@ int main(void)
 	double last_tick = 0;
 	for (;;) {
 		pump(100);
-		unsigned char f[1100];
-		int n;
-		while ((n = take_frame(0x0001, f, sizeof(f))) > 0)
-			handle_sig(f, n);
-		while ((n = take_frame(CID_SDP, f, sizeof(f))) > 0)
-			sdp_frame(f, n);
-		while ((n = take_frame(CID_RFC, f, sizeof(f))) > 0)
-			rfc_frame(f, n);
-		drop_foreign_frames();
+		dispatch_frames();
 		if (acl_up && !handle) {
 			acl_up = 0;
 			rfc_reset();
@@ -1586,10 +1811,17 @@ int main(void)
 				on_sco_down();
 			}
 			sco_pending = 0;
+			init_tried = 0;
 			lg("гарнитура отключилась — жду снова");
 			send_cmd(0x0c1a, &scan, 1);
 		}
 		double t = now_s();
+		if (acl_up && call_on && !init_tried && !dlci_up && t - acl_at > 4)
+			ag_initiate();
+		if (call_on && !acl_up && t >= call_next) {
+			page_headset();
+			call_next = t + 7;    /* срок ответа на вызов 5.12 с — чаще не надо */
+		}
 		if (t - last_tick >= 0.5) {
 			last_tick = t;
 			tick(t);
