@@ -60,7 +60,20 @@ hcitool -i hci0 cmd 0x03 0x1c 0x00 0x08 0x00 0x01 >/dev/null 2>&1  # окно в
 hcitool -i hci0 cmd 0x03 0x43 0x01 >/dev/null 2>&1                 # поиск вперемежку
 hcitool -i hci0 cmd 0x03 0x47 0x01 >/dev/null 2>&1                 # вызов вперемежку
 
-# Отвечать на входящее сопряжение некому, если агент не запущен
-pgrep -x btagent >/dev/null 2>&1 ||     setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &
+# Шлюз гарнитуры. Если в /root/.headset записан адрес сопряжённой гарнитуры,
+# вместо агента сопряжения запускаем bthfp: он сам отвечает на сопряжение,
+# зовёт гарнитуру и ведёт через неё звонки. Вдвоём с btagent он работать не
+# может — оба отвечают на одни и те же события контроллера.
+# BTHFP_NOAUTH: свой запрос аутентификации XP500 не любит, а когда его
+# запрашивает она сама, сохранённый ключ подходит.
+HS=$(cat /root/.headset 2>/dev/null)
+if [ -n "$HS" ] && [ -x /usr/local/bin/bthfp ]; then
+    pkill -x btagent 2>/dev/null
+    pgrep -x bthfp >/dev/null 2>&1 || \
+        BTHFP_NOAUTH=1 BTHFP_CALL="$HS" setsid /usr/local/bin/bthfp </dev/null >/tmp/bthfp.log 2>&1 &
+else
+    # Отвечать на входящее сопряжение некому, если агент не запущен
+    pgrep -x btagent >/dev/null 2>&1 ||     setsid /usr/local/bin/btagent 0000 </dev/null >/dev/null 2>&1 &
+fi
 
 hciconfig hci0 | head -3
