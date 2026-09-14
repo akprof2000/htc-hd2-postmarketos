@@ -627,6 +627,17 @@ static void phone_cmd(const char *s)
 	close(fd);
 }
 
+/* Экран звонка. phoned открывает его сам только для входящего вызова:
+ * исходящий показывает интерфейс, который набирал номер. Номер,
+ * набранный кнопкой гарнитуры, интерфейс не видит — поэтому экран
+ * открываем мы, если он ещё не открыт. */
+static void show_callscreen(void)
+{
+	if (system("pgrep -x callscreen >/dev/null 2>&1 || "
+		   "DISPLAY=:0 setsid /usr/local/bin/callscreen "
+		   "</dev/null >/dev/null 2>&1 &")) { }
+}
+
 static int cid_index(unsigned short cid)
 {
 	for (int i = 0; i < 4; i++)
@@ -668,15 +679,14 @@ static void drop_foreign_frames(void)
 static void on_sco_up(void)
 {
 	sco_pending = 0;
-	lg("голосовой канал поднят (ручка %d) — звук разговора в гарнитуру",
-	   sco_handle);
-	phone_cmd("@route b");
+	lg("голосовой канал поднят (ручка %d)", sco_handle);
+	/* тракт уже смотрит на гарнитуру — его ставит служебное соединение */
 }
 
 static void on_sco_down(void)
 {
-	lg("голосовой канал закрыт — звук обратно в динамик");
-	phone_cmd("@route l");
+	lg("голосовой канал закрыт");
+	/* тракт возвращается в динамик только при отключении гарнитуры */
 }
 
 static void sco_open(void)
@@ -1365,6 +1375,10 @@ static void at_line(const char *s)
 		if (cmer && !slc) {
 			slc = 1;
 			lg("служебное соединение с гарнитурой установлено");
+			/* звук разговора — в гарнитуру заранее, чтобы голос сразу
+			 * стартовал на ней, без переключения посреди разговора */
+			phone_cmd("@route b");
+			lg("тракт разговора переключён на гарнитуру");
 		}
 	} else if (!strncmp(u, "AT+CHLD=?", 9)) {
 		at_send("+CHLD: (0,1,2,3)");
@@ -1386,6 +1400,7 @@ static void at_line(const char *s)
 			snprintf(cmd, sizeof(cmd), "%s%s", s,
 				 strchr(s, ';') ? "" : ";");
 			phone_cmd(cmd);
+			show_callscreen();
 			at_send("OK");
 		}
 	} else if (!strcmp(u, "AT+BLDN")) {
@@ -1394,6 +1409,7 @@ static void at_line(const char *s)
 		if (num[0]) {
 			snprintf(cmd, sizeof(cmd), "ATD%s;", num);
 			phone_cmd(cmd);
+			show_callscreen();
 			at_send("OK");
 		} else
 			at_send("ERROR");
@@ -1523,6 +1539,10 @@ static void rfc_frame(const unsigned char *f, int n)
 		rfc_send(dlci, CR_RSP, 0x73, NULL, 0, 0);
 		if (dlci == 0 || dlci == dlci_up) {
 			lg("RFCOMM: гарнитура закрыла %s", dlci ? "канал" : "сеанс");
+			if (slc) {
+				phone_cmd("@route l");
+				lg("тракт разговора возвращён на громкую связь");
+			}
 			rfc_reset();
 		}
 	} else if (type == 0x63) {                         /* UA */
@@ -1842,6 +1862,8 @@ int main(void)
 			sco_pending = 0;
 			init_tried = 0;
 			lg("гарнитура отключилась — жду снова");
+			phone_cmd("@route l");
+			lg("тракт разговора возвращён на громкую связь");
 			send_cmd(0x0c1a, &scan, 1);
 		}
 		double t = now_s();
