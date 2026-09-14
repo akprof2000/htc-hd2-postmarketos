@@ -48,8 +48,13 @@ grep -q '11-bt-sco-spkr-rate' "$A/APKBUILD" || { echo "НЕ ВСТАВИЛСЯ �
 echo "=== патчи в APKBUILD:"
 grep -E '^\s*(09|10|11)-' "$A/APKBUILD"
 
-pmbootstrap checksum linux-htc-leo >/dev/null 2>&1
 set +e
+if ! pmbootstrap -y checksum linux-htc-leo > "$HOME/c11.log" 2>&1; then
+  echo "ПЕРЕСЧЁТ КОНТРОЛЬНЫХ СУММ УПАЛ:"
+  tail -20 "$HOME/c11.log"
+  exit 1
+fi
+echo "контрольные суммы пересчитаны"
 # Без --offline: pmbootstrap в строгом режиме перед сборкой сносит окружения
 # сборки и пересоздаёт служебное x86_64, а его пакетов в кэше нет — офлайн
 # сборка падала на «unable to select packages».
