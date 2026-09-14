@@ -1,0 +1,11 @@
+--- a/arch/arm/mach-msm/qdsp6_1550/q6audio_devices.h
++++ b/arch/arm/mach-msm/qdsp6_1550/q6audio_devices.h
+@@ -214,7 +214,7 @@
+ 		.id	= ADSP_AUDIO_DEVICE_ID_BT_SCO_SPKR,
+ 		.cad_id	= CAD_HW_DEVICE_ID_BT_SCO_SPKR,
+ 		.path	= 0, /* XXX */
+-		.rate   = 48000,
++		.rate   = 8000,
+ 		.dir	= Q6_RX,
+ 		.codec	= Q6_ECODEC_RX,
+ 		.hw	= Q6_HW_BT_SCO,
