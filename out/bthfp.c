@@ -1379,6 +1379,12 @@ static void at_line(const char *s)
 			 * стартовал на ней, без переключения посреди разговора */
 			phone_cmd("@route b");
 			lg("тракт разговора переключён на гарнитуру");
+			{
+				int vgs = getenv("BTHFP_VGS") ? atoi(getenv("BTHFP_VGS")) : 13;
+				int vgm = getenv("BTHFP_VGM") ? atoi(getenv("BTHFP_VGM")) : 12;
+				at_send("+VGS: %d", vgs);
+				at_send("+VGM: %d", vgm);
+			}
 		}
 	} else if (!strncmp(u, "AT+CHLD=?", 9)) {
 		at_send("+CHLD: (0,1,2,3)");
@@ -1840,6 +1846,16 @@ int main(void)
 	unsigned char pcm[5] = { 0x00, 0x00, 0x00, 0x00, 0x00 };
 	hex_list(getenv("BTHFP_PCM"), pcm, 5);
 	send_cmd(0xfc1c, pcm, 5);
+	{
+		unsigned char fmt[5];
+		if (hex_list(getenv("BTHFP_PCMFMT"), fmt, 5) == 5) {
+			send_cmd(0xfc1e, fmt, 5);
+			lg("формат PCM у чипа: %02x %02x %02x %02x %02x",
+			   fmt[0], fmt[1], fmt[2], fmt[3], fmt[4]);
+		}
+	}
+	lg("линия PCM у чипа: %02x %02x %02x %02x %02x",
+	   pcm[0], pcm[1], pcm[2], pcm[3], pcm[4]);
 	for (int i = 0; i < 10; i++)
 		pump(50);
 
