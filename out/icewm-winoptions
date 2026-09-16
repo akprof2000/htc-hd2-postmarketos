@@ -39,10 +39,6 @@ xfe.geometry: 480x776+0+24
 Xfe.geometry: 480x776+0+24
 xfe.dTitleBar: 0
 Xfe.dTitleBar: 0
-dillo.geometry: 480x776+0+24
-Dillo.geometry: 480x776+0+24
-dillo.dTitleBar: 0
-Dillo.dTitleBar: 0
 xfce4-terminal.geometry: 480x776+0+24
 Xfce4-terminal.geometry: 480x776+0+24
 
