@@ -1767,6 +1767,20 @@ static void tick(double t)
 		v[1] = 1;
 		v[2] = 0;
 	}
+	/* phoned при перезапуске сбрасывает маршрут на громкую связь — пока
+	 * гарнитура подключена, раз в 5 с возвращаем «bt» */
+	{
+		static double last_route = 0;
+		if (slc && dlci_up && t - last_route >= 5) {
+			char rt[16];
+			last_route = t;
+			rd("/run/phone/route", rt, sizeof(rt));
+			if (rt[0] && strcmp(rt, "bt")) {
+				phone_cmd("@route b");
+				lg("маршрут был «%s» — возвращаю на гарнитуру", rt);
+			}
+		}
+	}
 	int report = dlci_up && slc && cmer;
 	if (report) {
 		if (last_call >= 0 && v[1] != last_call)
