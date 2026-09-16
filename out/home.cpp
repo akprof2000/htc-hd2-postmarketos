@@ -61,7 +61,6 @@ static const Tile TILES[] = {
      "/usr/local/bin/fitwin Terminal /usr/local/bin/term-max"},
     {"▤", "Файлы",       0x6b5b2e, "/usr/local/bin/fitwin Xfe xfe"},
     {"⌨", "Клава",       0x5133b8, "/usr/local/bin/kbd"},
-    {"◐", "Браузер",     0x7a2b4b, "/usr/local/bin/fitwin Dillo dillo"},
     {"○", "Питание",     0x5d3a3a, "/usr/local/bin/powermenu"},
     {"↻", "Графика",     0x5d5d3a, "/usr/local/bin/x-restart"},
 };
