@@ -2183,7 +2183,19 @@ Rockbox занимает `/dev/msm_pcm_out` — пока он играет, ме
    ~30% → ~19%, весь Rockbox в простое ~22%.
 
 Отладочные счётчики показали, что в неподвижном меню экран обновляется
-меньше раза в секунду, — остаток нагрузки уже не отрисовка. Не найдено.
+меньше раза в секунду, — значит, дорого каждое обновление, а не их число.
 
-Rockbox на телефоне — сборка с `.rbfastlcd.py`; прежняя сохранена как
-`/usr/local/bin/rockbox.prev-slowlcd`.
+Остаток (~19%) добит так:
+3. `out/.rbfast32.py`: `lcd_surface`, `sim_lcd_surface` и текстура для
+   экрана 24 бита стали XRGB8888 (как окно X), смешивание у `lcd_surface`
+   выключено. Для 24 бит у SDL нет быстрого копирования. 19% → 15%.
+4. Выборка показала, что оставшееся — Mesa (JIT-код, libgallium,
+   floorf/memcpy): даже с программным рендерером SDL выводит поверхность
+   окна через OpenGL. `SDL_FRAMEBUFFER_ACCELERATION=0` в `rockbox-app` —
+   Mesa из процесса ушла, **Rockbox в простое 3–4%**.
+5. `SDL_AUDIODRIVER=dummy`: звук Rockbox идёт своим драйвером (МСМ), а SDL
+   зря тянул PulseAudio и поток слежения за ALSA.
+
+Rockbox на телефоне — сборка с `.rbfastlcd.py` и `.rbfast32.py`; прежние
+сохранены как `/usr/local/bin/rockbox.prev-slowlcd` и
+`rockbox.prev-24bit`.

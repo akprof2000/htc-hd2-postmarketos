@@ -20,6 +20,12 @@ export SDL_VIDEODRIVER=x11
 # гоняет шейдеры прямо на процессоре: Rockbox в неподвижном меню ел ~30%
 # процессора и тормозил. С программным выводом — ~19%.
 export SDL_RENDER_DRIVER=software
+# ...и окно тоже без OpenGL: иначе SDL выводит свою поверхность окна через
+# ускоренный рендерер, и Mesa всё равно работает.
+export SDL_FRAMEBUFFER_ACCELERATION=0
+# Звук Rockbox выводит своим драйвером (МСМ), звук SDL не нужен: без этого
+# SDL тянет PulseAudio и держит поток слежения за устройствами ALSA.
+export SDL_AUDIODRIVER=dummy
 export HOME=/root
 
 # Одна копия за раз. Проверяем не только процесс, но и ОКНО: Rockbox
