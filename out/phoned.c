@@ -237,10 +237,16 @@ static double now_s(void)
 	return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
+/* экран звонка: закончившийся процесс надо забрать, иначе он
+ * остаётся «зомби» — по одному на каждый звонок */
+static pid_t screen_pid = 0;
+
 static int ring_round = 0;     /* кругов мелодии за звонок */
 
 static void ringer_tick(int ringing)
 {
+	if (screen_pid > 0 && waitpid(screen_pid, NULL, WNOHANG) == screen_pid)
+		screen_pid = 0;
 	if (!ringing)
 		return;
 	double t = now_s();
@@ -336,6 +342,8 @@ static void set_state(const char *st)
 			      (char *)NULL);
 			_exit(127);
 		}
+		if (p > 0)
+			screen_pid = p;
 	}
 	if (!strcmp(st, "dialing") && !strcmp(old, "idle")) {
 		snprintf(call_dir, sizeof(call_dir), "out");
