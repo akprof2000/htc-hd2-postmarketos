@@ -2199,3 +2199,7 @@ Rockbox занимает `/dev/msm_pcm_out` — пока он играет, ме
 Rockbox на телефоне — сборка с `.rbfastlcd.py` и `.rbfast32.py`; прежние
 сохранены как `/usr/local/bin/rockbox.prev-slowlcd` и
 `rockbox.prev-24bit`.
+
+## Почта удалена (16 сентября)
+
+Приложение «Почта» (`mail`) убрано: оно показывало только простой текст, а письма сейчас почти всегда в HTML. Удалены плитка в `home`, исходник, бинарник, а на телефоне — `/usr/local/bin/mail` и `/root/.mailrc`.

@@ -49,7 +49,6 @@ static const Tile TILES[] = {
     {"=",      "Калькулятор", 0x8a5a2e, "/usr/local/bin/calc"},
     {"✎", "Заметки",     0x4a6b2e, "/usr/local/bin/notes"},
     {"◴", "Часы",        0x2c5aa4, "/usr/local/bin/clock"},
-    {"@",      "Почта",       0xa4712c, "/usr/local/bin/mail"},
     {"▧", "Галерея",     0x2e6a8a, "/usr/local/bin/gallery"},
     {"☄", "Фонарик",     0x8a8a2e, "/usr/local/bin/torch"},
     {"▣", "2048",        0x6a2e8a, "/usr/local/bin/game2048"},
