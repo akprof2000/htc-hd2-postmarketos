@@ -33,6 +33,7 @@
 
 #define DEV_SPKR_MONO      0x1081513u
 #define DEV_HEADSET_STEREO 0x107ac8au
+#define DEV_BT_SCO_SPKR    0x1081519u   /* Bluetooth-гарнитура */
 
 #define RATE 44100
 #define CACHE_DIR "/var/lib/phone"
@@ -117,6 +118,9 @@ static unsigned char *load(size_t *len)
 int main(int argc, char **argv)
 {
 	int headset = (argc > 1 && argv[1][0] == 'h');
+	/* b — в Bluetooth-гарнитуру: звук уходит по линии PCM в её голосовой
+	 * канал (его поднимает шлюз bthfp на время звонка) */
+	int bt = (argc > 1 && argv[1][0] == 'b');
 	size_t len = 0;
 	unsigned char *data = load(&len);
 	if (!data)
@@ -124,7 +128,8 @@ int main(int argc, char **argv)
 
 	int ctl = open("/dev/msm_audio_ctl", O_RDWR);
 	if (ctl >= 0) {
-		uint32_t sw[2] = { headset ? DEV_HEADSET_STEREO : DEV_SPKR_MONO, 0 };
+		uint32_t sw[2] = { bt ? DEV_BT_SCO_SPKR :
+				    headset ? DEV_HEADSET_STEREO : DEV_SPKR_MONO, 0 };
 		if (ioctl(ctl, AUDIO_SWITCH_DEVICE, &sw) < 0)
 			perror("SWITCH_DEVICE");
 		uint32_t v = 100;

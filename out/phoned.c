@@ -237,6 +237,8 @@ static double now_s(void)
 	return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
+static int ring_round = 0;     /* кругов мелодии за звонок */
+
 static void ringer_tick(int ringing)
 {
 	if (!ringing)
@@ -247,12 +249,22 @@ static void ringer_tick(int ringing)
 	if (ring_pid > 0 && waitpid(ring_pid, NULL, WNOHANG) == 0)
 		return;                    /* мелодия ещё играет */
 	ring_last = t;
+	ring_round++;
 	pid_t p = fork();
 	if (p == 0) {
 		setsid();
 		int null = open("/dev/null", O_RDWR);
 		if (null >= 0) { dup2(null, 1); dup2(null, 2); }
-		execl("/usr/local/bin/ringtone", "ringtone", (char *)NULL);
+		/* Гарнитура Bluetooth подключена — звоним попеременно: один круг
+		 * в неё (своей мелодии у XP500 нет), один в громкую связь, чтобы
+		 * звонок был слышен и без гарнитуры на голове. Писать в одно
+		 * устройство вывода двумя потоками сразу нельзя. */
+		char route[32];
+		read_state("route", route, sizeof(route));
+		if (!strcmp(route, "bt") && (ring_round % 2) == 0)
+			execl("/usr/local/bin/ringtone", "ringtone", "b", (char *)NULL);
+		else
+			execl("/usr/local/bin/ringtone", "ringtone", (char *)NULL);
 		_exit(127);
 	}
 	ring_pid = p;

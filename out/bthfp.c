@@ -572,6 +572,14 @@ static double sco_try_at = 0, sco_retry_at = 0;
 static int acl_up = 0;
 static double acl_at = 0;           /* когда появился канал */
 static int init_tried = 0;          /* открывать ли соединение самим */
+/* канал найден перебором (без события) — на таком опрос служб обычно
+ * срывается, и его лучше порвать и позвать гарнитуру заново */
+static int hidden_link = 0;
+/* когда гарнитура нажала «ответить»: пока phoned не заметил разговор
+ * (опрашивает модем раз в 2 с), сообщаем ей «разговор идёт» сами */
+static double ata_at = 0;
+/* что мы последним сообщили гарнитуре о звонке */
+static int last_call = -1, last_setup = -1;
 /* сколько ждать, пока гарнитура откроет соединение сама (BTHFP_INITDELAY) */
 static double init_delay = 12;
 /* BTHFP_CALL=<MAC>: гарнитура сама не подключается (XP500 так и не
@@ -760,6 +768,7 @@ static void on_event(int code, const unsigned char *b, int n)
 			mac_str(b + 3, m);
 			lg("канал с %s установлен, ручка %d", m, h);
 			acl_at = now_s();
+			hidden_link = 0;
 			unsigned char lp[4] = { h & 0xff, h >> 8, 0x00, 0x00 };
 			send_cmd(0x080d, lp, 4);             /* без дремоты */
 			if (call_on && !getenv("BTHFP_NOAUTH")) {
@@ -831,6 +840,7 @@ static void on_event(int code, const unsigned char *b, int n)
 			probe_h = 0;
 			lg("скрытый канал найден, ручка %d — беру его себе", h);
 			acl_at = now_s();
+			hidden_link = 1;
 			if (call_on && !getenv("BTHFP_NOAUTH")) {
 				unsigned char ah[2] = { h & 0xff, h >> 8 };
 				send_cmd(0x0411, ah, 2);
@@ -1355,7 +1365,7 @@ static void at_line(const char *s)
 	rd("/run/phone/state", st, sizeof(st));
 
 	if (!strncmp(u, "AT+BRSF", 7)) {
-		at_send("+BRSF: 32");                /* умеем отклонять вызов */
+		at_send("+BRSF: 40");   /* 0x20 отклонять вызов, 0x08 звонок по голосовому каналу */
 		at_send("OK");
 	} else if (!strcmp(u, "AT+CIND=?")) {
 		at_send("+CIND: (\"service\",(0,1)),(\"call\",(0,1)),"
@@ -1393,8 +1403,27 @@ static void at_line(const char *s)
 		clip = u[8] == '1';
 		at_send("OK");
 	} else if (!strcmp(u, "ATA")) {
-		phone_cmd("ATA");
-		at_send("OK");
+		if (!strcmp(st, "active") && now_s() - ata_at > 3) {
+			/* Гарнитура прислала «ответить» посреди разговора: она считает,
+			 * что всё ещё звонят. Это нажатие на отбой. */
+			phone_cmd("ATH");
+			at_send("OK");
+			lg("кнопка посреди разговора — кладу трубку");
+		} else {
+			phone_cmd("ATA");
+			at_send("OK");
+			ata_at = now_s();
+			/* сразу сообщаем «разговор идёт», не дожидаясь phoned: иначе
+			 * следующее нажатие гарнитура отправит как ещё одно «ответить» */
+			if (slc && cmer) {
+				if (last_call != 1)
+					at_send("+CIEV: 2,1");
+				if (last_setup != 0)
+					at_send("+CIEV: 3,0");
+				last_call = 1;
+				last_setup = 0;
+			}
+		}
 	} else if (!strcmp(u, "AT+CHUP")) {
 		phone_cmd("ATH");
 		at_send("OK");
@@ -1730,10 +1759,14 @@ static void ag_initiate(void)
 /* ── раз в полсекунды: состояние звонка ───────────────────────────── */
 static void tick(double t)
 {
-	static int last_call = -1, last_setup = -1, last_sig = -1, last_bat = -1;
+	static int last_sig = -1, last_bat = -1;
 	static double last_ring = 0;
 	int v[7];
 	ind_values(v);
+	if (t - ata_at < 8 && v[2] == 1) {   /* ответ нажат, модем ещё звонит */
+		v[1] = 1;
+		v[2] = 0;
+	}
 	int report = dlci_up && slc && cmer;
 	if (report) {
 		if (last_call >= 0 && v[1] != last_call)
@@ -1761,7 +1794,8 @@ static void tick(double t)
 		}
 	}
 
-	int want = dlci_up && handle && (v[1] || v[2] == 2);
+	/* голосовой канал нужен и пока звонит: мелодия идёт в гарнитуру по нему */
+	int want = dlci_up && handle && (v[1] || v[2] == 1 || v[2] == 2);
 	if (want && !sco_handle && !sco_pending && t >= sco_retry_at)
 		sco_open();
 	if (sco_pending && t - sco_try_at > 8) {
@@ -1877,6 +1911,8 @@ int main(void)
 			}
 			sco_pending = 0;
 			init_tried = 0;
+			hidden_link = 0;
+			last_call = last_setup = -1;
 			lg("гарнитура отключилась — жду снова");
 			phone_cmd("@route l");
 			lg("тракт разговора возвращён на громкую связь");
@@ -1891,9 +1927,21 @@ int main(void)
 				send_cmd(0x1405, rh, 2);         /* Read RSSI */
 			}
 		}
+		/* На скрытом канале гарнитура сама соединение не открывает —
+		 * ждать ей 12 с незачем. */
 		if (acl_up && call_on && !init_tried && !dlci_up &&
-		    t - acl_at > init_delay)
+		    t - acl_at > (hidden_link ? 3 : init_delay)) {
 			ag_initiate();
+			if (!dlci_up && hidden_link && handle) {
+				/* на скрытом канале не вышло — рвём его и сразу зовём
+				 * заново: следующий вызов обычно даёт нормальный канал */
+				unsigned char dc[3] = { handle & 0xff, handle >> 8, 0x13 };
+				send_cmd(0x0406, dc, 3);
+				lg("скрытый канал не годится — рву и зову гарнитуру заново");
+				handle = 0;
+				call_next = now_s() + 2;
+			}
+		}
 		if (call_on && !acl_up && t >= call_next) {
 			page_headset();
 			call_next = t + 7;    /* срок ответа на вызов 5.12 с — чаще не надо */
